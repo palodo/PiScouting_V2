@@ -1,0 +1,22 @@
+# Datos generados
+data/scouting.db
+data/scouting.db-*
+debug_html/
+__pycache__/
+*.pyc
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Entorno
+.venv/
+.env
+
+# Trabajo temporal / referencia
+_original/
+_probe*.py
+
+# TypeScript build cache
+*.tsbuildinfo
