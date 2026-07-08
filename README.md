@@ -34,6 +34,10 @@ Dos claves descubiertas y aprovechadas:
 
 ## Puesta en marcha
 
+### Arranque rápido (Windows)
+Doble clic en **`start.bat`**: arranca backend + frontend y abre la app en el navegador.
+La primera vez, instala dependencias antes (pasos 1 y 3). Manualmente:
+
 ### 1) Backend
 ```powershell
 cd backend
@@ -67,7 +71,7 @@ UI en http://127.0.0.1:5173 (proxy de `/api` al backend en el 8000).
   (para revisar el análisis como si estuvieras a mitad de temporada).
 - **Scouting del rival** (tipo los PDF originales): puesto en el grupo, métricas avanzadas
   (OffRtg, ritmo, eFG%, TS%, AST/TO, % de tiros de 3), clasificación, **jugadores clave** con
-  foto y mapa de tiro, y plantilla con +/- y TS%.
+  foto y mapa de tiro, y plantilla con +/- y TS%. **Exportable a PDF** (informe descargable).
 - **Rankings**: clasificación por categoría/grupo y líderes por estadística.
 - **Fichas** de equipo / jugador / partido con **mapas de tiro** (animados en jugador y partido).
 - **Comparar**: enfrenta las medias de dos equipos.

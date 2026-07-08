@@ -34,6 +34,7 @@ export default function Scout() {
   const nav = useNavigate();
   const [reloadKey, setReloadKey] = useState(0);
   const [preparing, setPreparing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const rep = useAsync<any>(() => api.scout(tid), [tid, reloadKey]);
   const teamShots = useAsync<any>(() => api.shotsTeam(tid), [tid, reloadKey]);
 
@@ -44,6 +45,22 @@ export default function Scout() {
       setReloadKey((k) => k + 1);
     } finally {
       setPreparing(false);
+    }
+  }
+
+  async function downloadPdf() {
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/scout/${tid}/pdf`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `scouting_${(rep.data?.team?.name || "equipo").replace(/[^a-z0-9]/gi, "_")}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -67,9 +84,16 @@ export default function Scout() {
             {" "}{d.record.wins}-{d.record.losses} ({d.record.pts_for_avg}/{d.record.pts_against_avg})
           </p>
         </div>
-        <button className="primary-btn" onClick={prepare} disabled={preparing}>
-          {preparing ? "Analizando partidos…" : d.detail_ready ? "↻ Analizar más partidos" : "⚡ Preparar scouting completo"}
-        </button>
+        <div className="scout-actions">
+          {d.detail_ready && (
+            <button className="primary-btn" onClick={downloadPdf} disabled={downloading}>
+              {downloading ? "Generando PDF…" : "📄 Descargar informe PDF"}
+            </button>
+          )}
+          <button className={d.detail_ready ? "ghost-btn" : "primary-btn"} onClick={prepare} disabled={preparing}>
+            {preparing ? "Analizando partidos…" : d.detail_ready ? "↻ Analizar más partidos" : "⚡ Preparar scouting completo"}
+          </button>
+        </div>
       </div>
 
       {!d.detail_ready && !preparing && (

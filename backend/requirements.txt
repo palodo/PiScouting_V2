@@ -9,5 +9,9 @@ requests>=2.31
 beautifulsoup4>=4.12
 lxml>=5.0
 
+# Informe PDF
+reportlab>=4.0
+Pillow>=10.0
+
 # Utilidades de datos
 pandas>=2.0

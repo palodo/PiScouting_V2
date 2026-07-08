@@ -20,3 +20,6 @@ _probe*.py
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Caché de fotos de jugadores (se regenera)
+data/player_photos_cache/

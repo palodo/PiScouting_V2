@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
@@ -276,3 +277,18 @@ def scout_prepare(team_id: int, limit: int = 20, session: Session = Depends(get_
     if not session.get(Team, team_id):
         raise HTTPException(404, "Equipo no encontrado")
     return ingest_team(session, team_id, limit=limit)
+
+
+@app.get("/api/scout/{team_id}/pdf")
+def scout_pdf(team_id: int, session: Session = Depends(get_session)):
+    """Genera y descarga el informe de scouting en PDF."""
+    from . import pdf_report
+    team = session.get(Team, team_id)
+    if not team:
+        raise HTTPException(404, "Equipo no encontrado")
+    pdf = pdf_report.build_scouting_pdf(session, team_id)
+    safe = "".join(c if c.isalnum() else "_" for c in team.name)[:40]
+    return StreamingResponse(
+        pdf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="scouting_{safe}.pdf"'},
+    )
