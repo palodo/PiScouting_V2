@@ -53,6 +53,9 @@ En Windows también sirve el doble clic en `start.bat` (arranca ambos + navegado
 La cuenta de prueba (`pau@test.com`) solo existe si usaste el dump (Opción A). Con la Opción B,
 crea una cuenta nueva en la app (registro con email+contraseña y elección de equipo).
 
+**Config opcional**: copia `.env.example` a `.env` (raíz del repo) para fijar `PISCOUTING_SECRET`
+(secreto de los JWT). El backend carga `.env` solo; en dev funciona sin él con un secreto por defecto.
+
 ## 3. Cosas que debes saber (no las vuelvas a descubrir)
 
 - **Entorno**: Python 3.14 (`python`, no `python3`) y Node 24. En scripts de consola exporta

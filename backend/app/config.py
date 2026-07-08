@@ -4,12 +4,28 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Clave para firmar los JWT. En producción, definir PISCOUTING_SECRET en el entorno.
-SECRET_KEY = os.environ.get("PISCOUTING_SECRET", "dev-secret-piscouting-change-me")
-TOKEN_TTL_DAYS = 30
-
 # Raíz del proyecto (PiScoutingv2/)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_dotenv() -> None:
+    """Carga variables de PROJECT_ROOT/.env (sin dependencias). No pisa las ya definidas."""
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
+# Clave para firmar los JWT. En producción, definir PISCOUTING_SECRET en el entorno o en .env.
+SECRET_KEY = os.environ.get("PISCOUTING_SECRET", "dev-secret-piscouting-change-me")
+TOKEN_TTL_DAYS = int(os.environ.get("PISCOUTING_TOKEN_TTL_DAYS", "30"))
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
