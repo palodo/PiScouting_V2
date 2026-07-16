@@ -1,0 +1,19 @@
+# Despliegue del backend (FastAPI) en Render — plan gratuito.
+# En Render: New → Blueprint → conecta este repo. Luego define las variables marcadas
+# "sync: false" en el panel (DATABASE_URL de Neon y FRONTEND_ORIGIN de tu web).
+services:
+  - type: web
+    name: piscouting-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL      # cadena de conexión de Neon (Postgres)
+        sync: false
+      - key: FRONTEND_ORIGIN   # dominio del frontend, p.ej. https://piscouting.pages.dev
+        sync: false
+      - key: PISCOUTING_SECRET # secreto para firmar los JWT (se genera solo)
+        generateValue: true

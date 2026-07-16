@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, apiUrl } from "../api";
 import { useAsync } from "../hooks";
 import ShotChart from "../components/ShotChart";
+import { IsoClipboard } from "../components/Iso";
 
 function KeyPlayer({ p, nav }: { p: any; nav: any }) {
   const shots = useAsync<any>(() => api.shotsPlayer(p.player_id), [p.player_id]);
@@ -51,7 +52,7 @@ export default function Scout() {
   async function downloadPdf() {
     setDownloading(true);
     try {
-      const res = await fetch(`/api/scout/${tid}/pdf`);
+      const res = await fetch(apiUrl(`/scout/${tid}/pdf`));
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -97,12 +98,17 @@ export default function Scout() {
       </div>
 
       {!d.detail_ready && !preparing && (
-        <div className="card" style={{ borderColor: "var(--accent)" }}>
-          <b>Análisis avanzado no preparado.</b>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            Pulsa «Preparar scouting completo» para descargar el detalle de sus últimos partidos
-            (boxscore + mapas de tiro) y calcular métricas avanzadas, jugadores clave y tiro.
-          </p>
+        <div className="card" style={{ borderColor: "rgba(255,90,31,0.35)" }}>
+          <div className="iso-empty">
+            <IsoClipboard size={190} />
+            <div>
+              <b style={{ fontSize: 16, color: "var(--navy)" }}>Análisis avanzado no preparado</b>
+              <p style={{ marginBottom: 0 }}>
+                Pulsa «Preparar scouting completo» para descargar el detalle de sus últimos partidos
+                (boxscore + mapas de tiro) y calcular métricas avanzadas, jugadores clave y tiro.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

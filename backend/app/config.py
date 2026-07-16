@@ -30,9 +30,25 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-# Base de datos SQLite (portable, sin servidor). Migrable a Postgres cambiando la URL.
+# Base de datos. En local: SQLite (portable, sin servidor). En producción: define la variable
+# de entorno DATABASE_URL (p.ej. la de Neon/Postgres) y la app la usa automáticamente.
 DB_PATH = DATA_DIR / "scouting.db"
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+
+def _resolve_db_url() -> str:
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        return f"sqlite:///{DB_PATH}"
+    # Normaliza el esquema de Postgres al driver psycopg v3 que usa SQLAlchemy.
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+DATABASE_URL = _resolve_db_url()
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 # Imagen de media pista para los mapas de tiro (heredada del proyecto original)
 COURT_IMAGE = DATA_DIR / "basket_court_edited.png"
@@ -43,6 +59,12 @@ LIVESTATS_API = "https://intrafeb.feb.es/LiveStats.API/api/v1"
 
 # Temporada por defecto: 2025 => "2025/2026"
 DEFAULT_SEASON = "2025"
+
+# Competiciones disponibles para el fantasy.
+# ⚠️ 3ª FEB (Liga EBA) PUEDE incluir jugadores MENORES de edad y no tenemos su fecha de
+# nacimiento para excluirlos individualmente. Se habilita SOLO para uso privado / no publicado.
+# ANTES DE PUBLICAR la app hay que ingerir fechas de nacimiento y excluir a los <18 (o quitar 3ª FEB).
+FANTASY_COMPETITIONS = ("1ª FEB", "2ª FEB", "3ª FEB")
 
 # Categorías FEB. El `code` de la URL /calendario/<slug>/<code>/<season> selecciona la
 # competición a nivel global (el slug es cosmético). Verificado empíricamente:

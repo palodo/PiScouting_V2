@@ -118,6 +118,55 @@ class PlayerMatchStat(SQLModel, table=True):
     plus_minus: int = 0
 
 
+class FantasyLeague(SQLModel, table=True):
+    """Liga fantasy. Se juega dentro de una 'conferencia' (competición + grupo): solo se
+    pueden fichar jugadores de los equipos de ese grupo. La temporada se juega en modo
+    repetición, avanzando jornada a jornada desde `start_jornada`."""
+    __tablename__ = "fantasy_leagues"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    join_code: str = Field(index=True, unique=True)
+    owner_user_id: int = Field(foreign_key="users.id", index=True)
+    season: str = Field(index=True)
+    competition: str = Field(index=True)
+    grupo: Optional[str] = Field(default=None, index=True)
+
+    budget: float = 100.0
+    squad_size: int = 10
+    lineup_size: int = 5
+    win_bonus: float = 4.0
+    start_jornada: int = 0       # los precios de salida usan los partidos hasta aquí
+    current_jornada: int = 0     # última jornada ya puntuada
+    max_jornada: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyMember(SQLModel, table=True):
+    __tablename__ = "fantasy_members"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    manager_name: str
+    budget_remaining: float = 100.0
+    total_points: float = 0.0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyPick(SQLModel, table=True):
+    """Un jugador en la plantilla de un participante. `starter` marca los que puntúan."""
+    __tablename__ = "fantasy_picks"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    member_id: int = Field(foreign_key="fantasy_members.id", index=True)
+    player_id: int = Field(foreign_key="players.id", index=True)
+    buy_price: float = 0.0
+    buy_jornada: int = 0
+    starter: bool = Field(default=False, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Shot(SQLModel, table=True):
     """Tiro individual con coordenadas de media pista (para mapas estáticos y animados)."""
     __tablename__ = "shots"

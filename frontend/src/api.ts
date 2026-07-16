@@ -1,5 +1,9 @@
 // Cliente ligero de la API de PiScouting.
 
+// En local: vacío → usa "/api" con el proxy de Vite. En producción: define VITE_API_BASE con
+// la URL del backend (p.ej. https://piscouting-api.onrender.com) al construir el frontend.
+const API_ROOT = (import.meta as any).env?.VITE_API_BASE?.replace(/\/$/, "") ?? "";
+
 export const DEFAULT_SEASON = "2025";
 
 let authToken: string | null = localStorage.getItem("pi_token");
@@ -18,14 +22,16 @@ function headers(extra?: Record<string, string>) {
   return h;
 }
 
+export const apiUrl = (path: string) => `${API_ROOT}/api${path}`;
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`/api${path}`, { headers: headers() });
+  const res = await fetch(apiUrl(path), { headers: headers() });
   if (!res.ok) throw new Error(await errMsg(res));
   return res.json() as Promise<T>;
 }
 
 async function send<T>(method: string, path: string, body?: any): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(apiUrl(path), {
     method,
     headers: headers({ "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
@@ -140,4 +146,17 @@ export const api = {
   nextOpponent: (teamId: number) => get<any>(`/teams/${teamId}/next`),
   scout: (teamId: number) => get<any>(`/scout/${teamId}`),
   scoutPrepare: (teamId: number, limit = 20) => send<any>("POST", `/scout/${teamId}/prepare?limit=${limit}`),
+
+  // Fantasy
+  fantasyCompetitions: () => get<{ competitions: { competition: string; grupos: string[] }[] }>("/fantasy/competitions"),
+  fantasyLeagues: () => get<any[]>("/fantasy/leagues"),
+  fantasyCreate: (body: any) => send<any>("POST", "/fantasy/leagues", body),
+  fantasyJoin: (join_code: string, manager_name: string) =>
+    send<any>("POST", "/fantasy/leagues/join", { join_code, manager_name }),
+  fantasyLeague: (id: number) => get<any>(`/fantasy/leagues/${id}`),
+  fantasyMarket: (id: number) => get<any>(`/fantasy/leagues/${id}/market`),
+  fantasyBuy: (id: number, player_id: number) => send<any>("POST", `/fantasy/leagues/${id}/buy`, { player_id }),
+  fantasySell: (id: number, player_id: number) => send<any>("POST", `/fantasy/leagues/${id}/sell`, { player_id }),
+  fantasyLineup: (id: number, starter_ids: number[]) => send<any>("POST", `/fantasy/leagues/${id}/lineup`, { starter_ids }),
+  fantasyAdvance: (id: number) => send<any>("POST", `/fantasy/leagues/${id}/advance`),
 };

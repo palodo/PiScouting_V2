@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAsync } from "../hooks";
 import { useAuth } from "../auth";
+import { IsoCourt } from "../components/Iso";
 
 export default function MyTeam() {
   const { user } = useAuth();
@@ -68,11 +69,14 @@ export default function MyTeam() {
             </button>
           </div>
         ) : (
-          <div>
-            <p className="muted" style={{ marginTop: 0 }}>
-              {sim !== null ? "No hay más partidos tras esa jornada." : "Temporada finalizada — no hay próximo partido. Activa «Simular mitad de temporada» o elige un rival de la clasificación."}
-            </p>
-            <Link to="/rankings" className="primary-btn" style={{ display: "inline-block", textDecoration: "none" }}>Ver clasificación</Link>
+          <div className="next-body">
+            <div style={{ maxWidth: "48ch" }}>
+              <p className="muted" style={{ marginTop: 0 }}>
+                {sim !== null ? "No hay más partidos tras esa jornada." : "Temporada finalizada — no hay próximo partido. Activa «Simular mitad de temporada» o elige un rival de la clasificación."}
+              </p>
+              <Link to="/rankings" className="primary-btn" style={{ display: "inline-block", textDecoration: "none" }}>Ver clasificación</Link>
+            </div>
+            <IsoCourt size={230} />
           </div>
         )}
       </div>

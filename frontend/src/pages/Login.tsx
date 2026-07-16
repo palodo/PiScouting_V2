@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../auth";
 import TeamPicker from "../components/TeamPicker";
+import { IsoCourt } from "../components/Iso";
 
 export default function Login() {
   const { login, signup } = useAuth();
@@ -28,9 +29,26 @@ export default function Login() {
 
   return (
     <div className="auth-wrap">
+      <aside className="auth-hero">
+        <div className="hero-brand">Pi<span>Scouting</span></div>
+        <div className="hero-art">
+          <IsoCourt size={440} />
+        </div>
+        <div>
+          <h1>Scouting FEB, partido a partido.</h1>
+          <p>Rankings, métricas avanzadas, mapas de tiro y el informe completo de tu
+             próximo rival — con la profundidad de los análisis en PDF, ahora interactivo.</p>
+          <div className="hero-points" style={{ marginTop: 20 }}>
+            <div>🏀 1ª · 2ª · 3ª FEB</div>
+            <div>📈 +/- por jugador</div>
+            <div>📄 Informe en PDF</div>
+          </div>
+        </div>
+      </aside>
+      <div className="auth-side">
       <form className="auth-card" onSubmit={submit}>
-        <div className="brand" style={{ fontSize: 30 }}>Pi<span>Scouting</span></div>
-        <p className="muted" style={{ marginTop: 0 }}>Análisis y scouting de baloncesto FEB</p>
+        <div className="brand" style={{ fontSize: 28, color: "var(--navy)" }}>Pi<span>Scouting</span></div>
+        <p className="muted" style={{ marginTop: 4 }}>Análisis y scouting de baloncesto FEB</p>
 
         <div className="tabs" style={{ marginBottom: 18 }}>
           <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Entrar</button>
@@ -60,10 +78,11 @@ export default function Login() {
         )}
 
         {error && <div className="error-box">{error}</div>}
-        <button className="primary-btn" disabled={busy}>
+        <button className="primary-btn" disabled={busy} style={{ width: "100%" }}>
           {busy ? "…" : mode === "login" ? "Entrar" : "Crear cuenta"}
         </button>
       </form>
+      </div>
     </div>
   );
 }

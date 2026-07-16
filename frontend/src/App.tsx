@@ -5,32 +5,43 @@ import Login from "./pages/Login";
 import MyTeam from "./pages/MyTeam";
 import Scout from "./pages/Scout";
 import Rankings from "./pages/Rankings";
+import Fantasy from "./pages/Fantasy";
+import FantasyLeague from "./pages/FantasyLeague";
 import TeamPage from "./pages/TeamPage";
 import PlayerPage from "./pages/PlayerPage";
 import MatchPage from "./pages/MatchPage";
 import ComparePage from "./pages/ComparePage";
 import TeamPicker from "./components/TeamPicker";
+import { BrandMark, IsoCourt } from "./components/Iso";
 
 function Sidebar() {
   const { user, logout } = useAuth();
+  const items = [
+    { to: "/", end: true, ico: "🏠", label: "Mi equipo" },
+    { to: "/rankings", ico: "📊", label: "Rankings" },
+    { to: "/compare", ico: "⚔️", label: "Comparar" },
+    { to: "/fantasy", ico: "🏆", label: "Fantasy" },
+    { to: "/settings", ico: "⚙️", label: "Ajustes" },
+  ];
   return (
     <aside className="sidebar">
-      <div className="brand">Pi<span>Scouting</span></div>
+      <div className="brand"><BrandMark size={26} />Pi<span>Scouting</span></div>
       <div className="brand-sub">FEB · Análisis de baloncesto</div>
       {user?.team && (
         <div className="my-team-chip">
           {user.team.logo && <img src={user.team.logo} />}
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{user.team.name}</div>
-            <div className="muted" style={{ fontSize: 11 }}>{user.team.competition}</div>
+            <div className="mt-name">{user.team.name}</div>
+            <div className="mt-comp">{user.team.competition}</div>
           </div>
         </div>
       )}
-      <nav className="nav">
-        <NavLink to="/" end>🏠 Mi equipo</NavLink>
-        <NavLink to="/rankings">📊 Rankings</NavLink>
-        <NavLink to="/compare">⚔️ Comparar</NavLink>
-        <NavLink to="/settings">⚙️ Ajustes</NavLink>
+      <nav className="nav" style={{ marginTop: 14 }}>
+        {items.map((it) => (
+          <NavLink key={it.to} to={it.to} end={it.end}>
+            <span className="nav-ico">{it.ico}</span><span>{it.label}</span>
+          </NavLink>
+        ))}
       </nav>
       <div className="sidebar-foot">
         <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>{user?.email}</div>
@@ -46,14 +57,25 @@ function ChooseTeam() {
   const [busy, setBusy] = useState(false);
   return (
     <div className="auth-wrap">
-      <div className="auth-card">
-        <h2 style={{ marginTop: 0 }}>Elige tu equipo</h2>
-        <p className="muted">Verás tu equipo, su calendario y el scouting de tus rivales.</p>
-        <TeamPicker value={teamId} onChange={setTeamId} />
-        <button className="primary-btn" style={{ marginTop: 16 }} disabled={!teamId || busy}
-          onClick={async () => { setBusy(true); try { await setTeam(teamId!); } finally { setBusy(false); } }}>
-          Continuar
-        </button>
+      <aside className="auth-hero">
+        <div className="hero-brand"><BrandMark size={26} />Pi<span>Scouting</span></div>
+        <div className="hero-art"><IsoCourt size={440} /></div>
+        <div>
+          <h1>¿A quién seguimos esta temporada?</h1>
+          <p>Elige tu equipo y tendrás su calendario, su balance y el scouting completo
+             de cada rival a un clic.</p>
+        </div>
+      </aside>
+      <div className="auth-side">
+        <div className="auth-card">
+          <h2 style={{ marginTop: 0 }}>Elige tu equipo</h2>
+          <p className="muted">Verás tu equipo, su calendario y el scouting de tus rivales.</p>
+          <TeamPicker value={teamId} onChange={setTeamId} />
+          <button className="primary-btn" style={{ marginTop: 16, width: "100%" }} disabled={!teamId || busy}
+            onClick={async () => { setBusy(true); try { await setTeam(teamId!); } finally { setBusy(false); } }}>
+            Continuar
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -91,6 +113,8 @@ export default function App() {
           <Route path="/" element={<MyTeam />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/compare" element={<ComparePage />} />
+          <Route path="/fantasy" element={<Fantasy />} />
+          <Route path="/fantasy/:id" element={<FantasyLeague />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/scout/:id" element={<Scout />} />
           <Route path="/team/:id" element={<TeamPage />} />

@@ -12,15 +12,20 @@ from sqlmodel import Session, select, func
 
 from .db import engine, init_db, get_session
 from .config import DEFAULT_SEASON
-from .models import Team, Player, Match, PlayerMatchStat, User
-from . import analytics, shots as shots_mod, scouting as scouting_mod, auth
+from .models import Team, Player, Match, PlayerMatchStat, User, FantasyLeague
+from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod
 from .ingest.crawl import ingest_team
 
 app = FastAPI(title="PiScouting API", version="0.1.0")
 
+import os as _os
+# Producción: define FRONTEND_ORIGIN con el dominio del frontend (coma-separado si son varios),
+# p.ej. "https://piscouting.pages.dev". En dev se permite localhost/LAN por regex.
+_frontend_origins = [o.strip() for o in _os.environ.get("FRONTEND_ORIGIN", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_frontend_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -292,3 +297,170 @@ def scout_pdf(team_id: int, session: Session = Depends(get_session)):
         pdf, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="scouting_{safe}.pdf"'},
     )
+
+
+# ============================ Fantasy ============================
+class CreateLeagueBody(BaseModel):
+    name: str
+    competition: str
+    grupo: Optional[str] = None
+    manager_name: str
+    budget: float = 100.0
+    squad_size: int = 10
+    lineup_size: int = 5
+    win_bonus: float = 4.0
+    start_jornada: Optional[int] = None
+
+
+class JoinLeagueBody(BaseModel):
+    join_code: str
+    manager_name: str
+
+
+class PlayerBody(BaseModel):
+    player_id: int
+
+
+class LineupBody(BaseModel):
+    starter_ids: list[int]
+
+
+def _get_league(session: Session, league_id: int) -> FantasyLeague:
+    lg = session.get(FantasyLeague, league_id)
+    if not lg:
+        raise HTTPException(404, "Liga no encontrada")
+    return lg
+
+
+@app.get("/api/fantasy/competitions")
+def fantasy_competitions(season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
+    """Conferencias donde se permite jugar al fantasy."""
+    from .config import FANTASY_COMPETITIONS
+    teams = session.exec(select(Team).where(
+        Team.season == season, Team.competition.in_(list(FANTASY_COMPETITIONS)))).all()
+    out: dict[str, set] = {}
+    for t in teams:
+        out.setdefault(t.competition, set())
+        if t.grupo:
+            out[t.competition].add(t.grupo)
+    result = [{"competition": c, "grupos": sorted(g)} for c, g in out.items()]
+    result.sort(key=lambda x: x["competition"])
+    return {"competitions": result}
+
+
+@app.get("/api/fantasy/leagues")
+def fantasy_my_leagues(user: User = Depends(auth.get_current_user),
+                       session: Session = Depends(get_session)):
+    from .models import FantasyMember
+    memberships = session.exec(select(FantasyMember).where(FantasyMember.user_id == user.id)).all()
+    out = []
+    for m in memberships:
+        lg = session.get(FantasyLeague, m.league_id)
+        if lg:
+            out.append({**fantasy_mod.league_out(lg),
+                        "member_points": m.total_points,
+                        "members": len(session.exec(select(FantasyMember).where(
+                            FantasyMember.league_id == lg.id)).all())})
+    return out
+
+
+@app.post("/api/fantasy/leagues")
+def fantasy_create(body: CreateLeagueBody, user: User = Depends(auth.get_current_user),
+                   session: Session = Depends(get_session)):
+    try:
+        lg = fantasy_mod.create_league(
+            session, user.id, body.name.strip() or "Mi liga", body.competition, body.grupo,
+            DEFAULT_SEASON, body.manager_name.strip() or (user.name or user.email.split("@")[0]),
+            budget=body.budget, squad_size=body.squad_size, lineup_size=body.lineup_size,
+            win_bonus=body.win_bonus, start_jornada=body.start_jornada)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return fantasy_mod.league_out(lg)
+
+
+@app.post("/api/fantasy/leagues/join")
+def fantasy_join(body: JoinLeagueBody, user: User = Depends(auth.get_current_user),
+                 session: Session = Depends(get_session)):
+    lg = session.exec(select(FantasyLeague).where(
+        FantasyLeague.join_code == body.join_code.strip().upper())).first()
+    if not lg:
+        raise HTTPException(404, "No existe una liga con ese código")
+    fantasy_mod.join_league(session, lg, user.id,
+                            body.manager_name.strip() or (user.name or user.email.split("@")[0]))
+    return fantasy_mod.league_out(lg)
+
+
+@app.get("/api/fantasy/leagues/{league_id}")
+def fantasy_league_detail(league_id: int, user: User = Depends(auth.get_current_user),
+                          session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    member = fantasy_mod.member_of(session, league_id, user.id)
+    return {
+        "league": fantasy_mod.league_out(lg),
+        "is_owner": lg.owner_user_id == user.id,
+        "standings": fantasy_mod.standings(session, lg),
+        "my_member_id": member.id if member else None,
+        "my_budget": member.budget_remaining if member else None,
+        "my_squad": fantasy_mod.my_squad(session, lg, member) if member else [],
+    }
+
+
+@app.get("/api/fantasy/leagues/{league_id}/market")
+def fantasy_market(league_id: int, user: User = Depends(auth.get_current_user),
+                   session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    member = fantasy_mod.member_of(session, league_id, user.id)
+    owned = {p.player_id for p in fantasy_mod.picks_of(session, member.id)} if member else set()
+    rows = fantasy_mod.market(session, lg)
+    for r in rows:
+        r["owned"] = r["player_id"] in owned
+    return {"market": rows, "my_budget": member.budget_remaining if member else None}
+
+
+def _member_or_403(session, league_id, user_id) -> "FantasyMember":
+    m = fantasy_mod.member_of(session, league_id, user_id)
+    if not m:
+        raise HTTPException(403, "No participas en esta liga")
+    return m
+
+
+@app.post("/api/fantasy/leagues/{league_id}/buy")
+def fantasy_buy(league_id: int, body: PlayerBody, user: User = Depends(auth.get_current_user),
+                session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.buy(session, lg, m, body.player_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/sell")
+def fantasy_sell(league_id: int, body: PlayerBody, user: User = Depends(auth.get_current_user),
+                 session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.sell(session, lg, m, body.player_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/lineup")
+def fantasy_lineup(league_id: int, body: LineupBody, user: User = Depends(auth.get_current_user),
+                   session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.set_lineup(session, lg, m, body.starter_ids)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/advance")
+def fantasy_advance(league_id: int, user: User = Depends(auth.get_current_user),
+                    session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    if lg.owner_user_id != user.id:
+        raise HTTPException(403, "Solo el creador de la liga puede avanzar jornada")
+    return fantasy_mod.advance(session, lg)
