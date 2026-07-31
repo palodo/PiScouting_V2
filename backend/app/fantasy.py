@@ -225,9 +225,8 @@ def _resolve_round(session: Session, league: FantasyLeague) -> None:
             b.status = "won"
             m.budget_remaining = round(m.budget_remaining - b.amount, 1)
             starters = sum(1 for p in picks_of(session, m.id) if p.starter)
-            session.add(FantasyPick(member_id=m.id, player_id=lst.player_id, buy_price=b.amount,
-                                    buy_jornada=league.current_jornada,
-                                    starter=starters < league.lineup_size))
+            _new_pick(session, league, m, lst.player_id, b.amount, lst.price,
+                      starters < league.lineup_size)
             lst.winner_member_id = m.id
             lst.sold_price = b.amount
             sold += 1
@@ -289,7 +288,8 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
                   win_bonus: float = 4.0, start_jornada: Optional[int] = None,
                   market_weekday: int = 4, market_hour: int = 20,
                   market_duration_h: int = 24, market_size: int = 10,
-                  initial_squad: int = 5, open_now: bool = True) -> FantasyLeague:
+                  initial_squad: int = 5, clause_factor: float = 2.0,
+                  clause_lock_h: int = 24, open_now: bool = True) -> FantasyLeague:
     if competition not in FANTASY_COMPETITIONS:
         raise ValueError("Esa competición no está disponible para el fantasy.")
     mj = max_jornada(session, competition, grupo, season)
@@ -306,6 +306,8 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
         market_weekday=int(_clamp(market_weekday, 0, 6)), market_hour=int(_clamp(market_hour, 0, 23)),
         market_duration_h=int(_clamp(market_duration_h, 1, 168)),
         market_size=int(_clamp(market_size, 4, 30)),
+        clause_factor=float(_clamp(clause_factor, 1.2, 5.0)),
+        clause_lock_h=int(_clamp(clause_lock_h, 0, 168)),
         # el primer mercado abre ya (para poder jugar desde el minuto uno); los siguientes
         # siguen el horario elegido
         market_opens_at=now if open_now else _next_slot(now, market_weekday, market_hour),
@@ -339,9 +341,8 @@ def _assign_initial_squad(session: Session, league: FantasyLeague, member: Fanta
         if spent + r["price"] > budget_cap:
             continue
         starters = sum(1 for p in picks_of(session, member.id) if p.starter)
-        session.add(FantasyPick(member_id=member.id, player_id=r["player_id"], buy_price=r["price"],
-                                buy_jornada=league.current_jornada,
-                                starter=starters < league.lineup_size))
+        _new_pick(session, league, member, r["player_id"], r["price"], r["price"],
+                  starters < league.lineup_size)
         spent += r["price"]
         session.commit()
     member.budget_remaining = round(member.budget_remaining - spent, 1)
@@ -485,6 +486,172 @@ def open_market_now(session: Session, league: FantasyLeague) -> dict:
     return {"ok": True, "round": league.market_round}
 
 
+# ============================ cláusulas de rescisión ============================
+def _clause_for(league: FantasyLeague, value: float) -> float:
+    return round(max(value, PRICE_MIN) * league.clause_factor, 1)
+
+
+def _new_pick(session: Session, league: FantasyLeague, member: FantasyMember,
+              player_id: int, paid: float, value: float, starter: bool) -> FantasyPick:
+    pick = FantasyPick(
+        member_id=member.id, player_id=player_id, buy_price=paid,
+        buy_jornada=league.current_jornada, starter=starter,
+        clause=_clause_for(league, max(value, paid)),
+        clause_locked_until=utcnow() + timedelta(hours=league.clause_lock_h),
+    )
+    session.add(pick)
+    return pick
+
+
+def pay_clause(session: Session, league: FantasyLeague, member: FantasyMember,
+               player_id: int) -> dict:
+    """Clausulazo: te llevas al jugador de otro mánager pagando su cláusula (el dinero
+    va íntegro al dueño)."""
+    pick = session.exec(select(FantasyPick).join(
+        FantasyMember, FantasyMember.id == FantasyPick.member_id).where(
+        FantasyMember.league_id == league.id, FantasyPick.player_id == player_id)).first()
+    if not pick:
+        raise ValueError("Ese jugador no lo tiene nadie: ficha por el mercado")
+    if pick.member_id == member.id:
+        raise ValueError("Ese jugador ya es tuyo")
+    if pick.clause_locked_until and utcnow() < pick.clause_locked_until:
+        mins = int((pick.clause_locked_until - utcnow()).total_seconds() // 60)
+        raise ValueError(f"Jugador blindado {mins // 60}h {mins % 60}m más")
+    if len(picks_of(session, member.id)) >= league.squad_size:
+        raise ValueError(f"Plantilla llena ({league.squad_size} jugadores)")
+    amount = round(pick.clause, 1)
+    free = member.budget_remaining - committed_amount(session, member.id)
+    if amount > free + 1e-6:
+        raise ValueError(f"Necesitas {amount} M€ libres (tienes {round(free, 1)})")
+
+    owner = session.get(FantasyMember, pick.member_id)
+    value = price_map(session, league).get(player_id, amount)
+    member.budget_remaining = round(member.budget_remaining - amount, 1)
+    owner.budget_remaining = round(owner.budget_remaining + amount, 1)
+    starters = sum(1 for p in picks_of(session, member.id) if p.starter)
+    session.delete(pick)
+    _new_pick(session, league, member, player_id, amount, value, starters < league.lineup_size)
+    session.add_all([member, owner])
+    pl = session.get(Player, player_id)
+    _log(session, league.id, "clause",
+         f"💥 CLAUSULAZO · {member.manager_name} se lleva a {pl.name if pl else '?'} "
+         f"de {owner.manager_name} por {amount} M€")
+    session.commit()
+    return {"ok": True, "paid": amount, "budget_remaining": member.budget_remaining}
+
+
+def raise_clause(session: Session, league: FantasyLeague, member: FantasyMember,
+                 player_id: int, new_clause: float) -> dict:
+    """Sube la cláusula de tu jugador. Cuesta un % de la subida."""
+    pick = session.exec(select(FantasyPick).where(
+        FantasyPick.member_id == member.id, FantasyPick.player_id == player_id)).first()
+    if not pick:
+        raise ValueError("No tienes a ese jugador")
+    new_clause = round(float(new_clause), 1)
+    if new_clause <= pick.clause:
+        raise ValueError(f"La cláusula ya es de {pick.clause} M€")
+    cost = round((new_clause - pick.clause) * league.clause_raise_cost, 1)
+    free = member.budget_remaining - committed_amount(session, member.id)
+    if cost > free + 1e-6:
+        raise ValueError(f"Subirla cuesta {cost} M€ y solo tienes {round(free, 1)} libres")
+    pick.clause = new_clause
+    member.budget_remaining = round(member.budget_remaining - cost, 1)
+    session.add_all([pick, member])
+    session.commit()
+    return {"ok": True, "clause": new_clause, "cost": cost,
+            "budget_remaining": member.budget_remaining}
+
+
+# ============================ ficha del jugador ============================
+def player_detail(session: Session, league: FantasyLeague, player_id: int) -> dict:
+    """Todas las estadísticas del jugador + su situación en la liga (dueño, cláusula)."""
+    pl = session.get(Player, player_id)
+    if not pl:
+        raise ValueError("Jugador no encontrado")
+    rows = session.exec(
+        select(PlayerMatchStat, Match, Team)
+        .join(Match, Match.id == PlayerMatchStat.match_id)
+        .join(Team, Team.id == PlayerMatchStat.team_id)
+        .where(PlayerMatchStat.player_id == player_id, Team.season == league.season)
+    ).all()
+    agg = {k: 0 for k in ("seconds", "pts", "val", "plus_minus", "treb", "oreb", "dreb", "ast",
+                          "stl", "tov", "blk_for", "pf_committed", "t2m", "t2a", "t3m", "t3a",
+                          "tlm", "tla")}
+    games, team_name, wins = [], None, 0
+    for st, m, tm in rows:
+        team_name = tm.name
+        for k in agg:
+            agg[k] += getattr(st, k)
+        my = m.home_score if st.is_home else m.away_score
+        opp = m.away_score if st.is_home else m.home_score
+        won = my is not None and opp is not None and my > opp
+        wins += int(won)
+        games.append({"j": m.jornada_num, "val": st.val, "pts": st.pts, "reb": st.treb,
+                      "ast": st.ast, "pm": st.plus_minus, "min": round(st.seconds / 60, 1),
+                      "won": won})
+    n = len(rows) or 1
+    fga, fgm = agg["t2a"] + agg["t3a"], agg["t2m"] + agg["t3m"]
+    ts_den = 2 * (fga + 0.44 * agg["tla"])
+    games.sort(key=lambda g: g["j"] or 0)
+    info = next((r for r in all_priced(session, league) if r["player_id"] == player_id), {})
+
+    pick = session.exec(select(FantasyPick).join(
+        FantasyMember, FantasyMember.id == FantasyPick.member_id).where(
+        FantasyMember.league_id == league.id, FantasyPick.player_id == player_id)).first()
+    owner = session.get(FantasyMember, pick.member_id) if pick else None
+    locked = bool(pick and pick.clause_locked_until and utcnow() < pick.clause_locked_until)
+    lock_mins = int((pick.clause_locked_until - utcnow()).total_seconds() // 60) if locked else 0
+
+    return {
+        "player_id": player_id, "name": pl.name, "feb_code": pl.feb_code, "team": team_name,
+        "price": info.get("price"), "form": info.get("form"), "games": len(rows),
+        "wins": wins, "losses": len(rows) - wins,
+        "avg": {
+            "min": round(agg["seconds"] / n / 60, 1), "pts": round(agg["pts"] / n, 1),
+            "reb": round(agg["treb"] / n, 1), "oreb": round(agg["oreb"] / n, 1),
+            "dreb": round(agg["dreb"] / n, 1), "ast": round(agg["ast"] / n, 1),
+            "stl": round(agg["stl"] / n, 1), "tov": round(agg["tov"] / n, 1),
+            "blk": round(agg["blk_for"] / n, 1), "pf": round(agg["pf_committed"] / n, 1),
+            "val": round(agg["val"] / n, 1), "pm": round(agg["plus_minus"] / n, 1),
+        },
+        "pct": {
+            "fg": _pct(fgm, fga), "t2": _pct(agg["t2m"], agg["t2a"]),
+            "t3": _pct(agg["t3m"], agg["t3a"]), "tl": _pct(agg["tlm"], agg["tla"]),
+            "ts": round(agg["pts"] / ts_den * 100, 1) if ts_den else 0.0,
+        },
+        "totals": {"pts": agg["pts"], "val": agg["val"], "t3m": agg["t3m"]},
+        "last": games[-8:],
+        "owner": owner.manager_name if owner else None,
+        "owner_member_id": owner.id if owner else None,
+        "clause": pick.clause if pick else None,
+        "clause_locked": locked, "clause_lock_mins": lock_mins,
+    }
+
+
+def member_squad(session: Session, league: FantasyLeague, member_id: int) -> list[dict]:
+    """Plantilla de cualquier mánager (para ver rivales y sus cláusulas)."""
+    m = session.get(FantasyMember, member_id)
+    if not m or m.league_id != league.id:
+        raise ValueError("Mánager no encontrado")
+    prices = price_map(session, league)
+    info = {r["player_id"]: r for r in all_priced(session, league)}
+    now = utcnow()
+    out = []
+    for p in picks_of(session, member_id):
+        d = info.get(p.player_id, {})
+        locked = bool(p.clause_locked_until and now < p.clause_locked_until)
+        out.append({
+            "player_id": p.player_id, "name": d.get("name", "?"), "feb_code": d.get("feb_code"),
+            "team": d.get("team"), "price": prices.get(p.player_id, p.buy_price),
+            "val_avg": d.get("val_avg", 0), "starter": p.starter,
+            "clause": p.clause, "clause_locked": locked,
+            "clause_lock_mins": int((p.clause_locked_until - now).total_seconds() // 60) if locked else 0,
+        })
+    out.sort(key=lambda r: -r["price"])
+    return {"manager": m.manager_name, "member_id": m.id, "squad": out,
+            "budget": m.budget_remaining, "points": m.total_points}
+
+
 def sell(session: Session, league: FantasyLeague, member: FantasyMember, player_id: int) -> dict:
     pick = session.exec(select(FantasyPick).where(
         FantasyPick.member_id == member.id, FantasyPick.player_id == player_id)).first()
@@ -561,15 +728,19 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
     conf = conference_games(session, league.competition, league.grupo, league.season)
     info = {r["player_id"]: r for r in all_priced(session, league)}
     out = []
+    now = utcnow()
     for p in picks_of(session, member.id):
         d = conf.get(p.player_id, {})
         extra = info.get(p.player_id, {})
         cur = prices.get(p.player_id, p.buy_price)
+        locked = bool(p.clause_locked_until and now < p.clause_locked_until)
         out.append({
             "player_id": p.player_id, "name": d.get("name", "?"), "feb_code": d.get("feb_code"),
             "team": d.get("team"), "buy_price": p.buy_price, "price": cur,
             "delta": round(cur - p.buy_price, 1), "starter": p.starter,
             "val_avg": extra.get("val_avg", 0), "form": extra.get("form", 0),
+            "clause": p.clause, "clause_locked": locked,
+            "clause_lock_mins": int((p.clause_locked_until - now).total_seconds() // 60) if locked else 0,
         })
     out.sort(key=lambda r: (not r["starter"], -r["price"]))
     return out
@@ -596,4 +767,6 @@ def league_out(league: FantasyLeague) -> dict:
         "market_open": league.market_open, "market_round": league.market_round,
         "market_opens_at": league.market_opens_at.isoformat() + "Z" if league.market_opens_at else None,
         "market_closes_at": league.market_closes_at.isoformat() + "Z" if league.market_closes_at else None,
+        "clause_factor": league.clause_factor, "clause_lock_h": league.clause_lock_h,
+        "clause_raise_cost": league.clause_raise_cost,
     }

@@ -25,6 +25,12 @@ npm run dev        # http://localhost:5174  (y por IP para el móvil)
   importe. Al cerrar, **gana la puja más alta** (a igualdad, la primera). Los que pierden no pagan.
 - **Presupuesto comprometido**: no puedes pujar más de lo que tienes sumando todas tus pujas.
 - **Exclusividad**: un jugador solo lo puede tener un mánager; sale del mercado al ficharse.
+- **Cláusulas de rescisión (clausulazos)**: cada jugador fichado tiene una cláusula (= su valor
+  × factor, configurable al crear la liga). Otro mánager puede **llevárselo pagándola**, y el
+  dinero va íntegro a su dueño. Tras fichar hay un **blindaje** de X horas (configurable) en el
+  que no se le puede clausular. El dueño puede **subir la cláusula** pagando un 25 % de la subida.
+- **Ficha de jugador**: toca cualquier jugador (mercado, tu plantilla o la de un rival) para ver
+  todas sus estadísticas —medias, porcentajes, +/-— y su gráfico de las últimas jornadas.
 - **Precios dinámicos**: suben y bajan con la valoración, la forma reciente y el +/-.
 - **Puntos por jornada**: valoración (VAL) del jugador + bonus si su equipo ganó. Solo puntúan
   los 5 titulares.

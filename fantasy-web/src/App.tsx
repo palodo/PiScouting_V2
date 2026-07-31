@@ -117,6 +117,7 @@ function CreateLeague({ onBack, onDone }: { onBack: () => void; onDone: (id: num
     name: "", manager_name: "", competition: "", grupo: "",
     market_weekday: 4, market_hour: 20, market_duration_h: 24, market_size: 10,
     budget: 100, squad_size: 10, lineup_size: 5, initial_squad: 5,
+    clause_factor: 2.0, clause_lock_h: 24,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -211,6 +212,24 @@ function CreateLeague({ onBack, onDone }: { onBack: () => void; onDone: (id: num
         </p>
       </div>
 
+      <div className="sec">💥 Cláusulas<div className="rest" /></div>
+      <div className="panel">
+        <div className="grid2">
+          <label className="f"><span>Cláusula = valor ×</span>
+            <select value={f.clause_factor} onChange={(e) => set("clause_factor", Number(e.target.value))}>
+              {[1.5, 2, 2.5, 3, 4].map((n) => <option key={n} value={n}>×{n}</option>)}
+            </select></label>
+          <label className="f"><span>Blindaje al fichar</span>
+            <select value={f.clause_lock_h} onChange={(e) => set("clause_lock_h", Number(e.target.value))}>
+              {[0, 12, 24, 48, 72].map((n) => <option key={n} value={n}>{n === 0 ? "Sin blindaje" : `${n} h`}</option>)}
+            </select></label>
+        </div>
+        <p className="muted" style={{ fontSize: 11.5, margin: 0 }}>
+          Otro mánager puede llevarse a tu jugador pagando su cláusula (el dinero es para ti).
+          Puedes subirla pagando un 25% de la subida.
+        </p>
+      </div>
+
       {err && <div className="err">{err}</div>}
       <button className="btn block" disabled={busy || !f.competition}>{busy ? "Creando…" : "Crear liga"}</button>
     </form>
@@ -255,6 +274,8 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [bidFor, setBidFor] = useState<any>(null);
+  const [playerFor, setPlayerFor] = useState<number | null>(null);
+  const [rivalFor, setRivalFor] = useState<any>(null);
   const inited = useRef(false);
 
   async function load() { const d = await api.league(id); setData(d); return d; }
@@ -267,8 +288,8 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
       if (d.league.market_open) { setTab("mercado"); loadMarket(); }
     });
   }, [id]);
-  // el mercado es en vivo: refresca al entrar y cada 20 s mientras esté abierto
-  useEffect(() => { if (tab === "mercado") loadMarket(); }, [tab]);
+  // al cambiar de pestaña refrescamos: la liga es en vivo (nuevos mánagers, fichajes, cláusulas)
+  useEffect(() => { load(); if (tab === "mercado") loadMarket(); }, [tab]);
   useEffect(() => {
     if (tab !== "mercado" || !data?.league?.market_open) return;
     const t = setInterval(() => { loadMarket(); load(); }, 20000);
@@ -339,11 +360,13 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
           </div>
           <div className="sec">Titulares · {starters.length}/{lg.lineup_size}<div className="rest" /></div>
           {starters.map((p) => <SquadCard key={p.player_id} p={p} busy={busy}
+            onOpen={() => setPlayerFor(p.player_id)}
             onStar={() => toggleStarter(p.player_id, true)}
             onSell={() => act(() => api.sell(id, p.player_id), "Vendido")} />)}
           <div className="sec">Banquillo · {bench.length}<div className="rest" /></div>
           {bench.length === 0 && <div className="empty">Sin suplentes.</div>}
           {bench.map((p) => <SquadCard key={p.player_id} p={p} busy={busy}
+            onOpen={() => setPlayerFor(p.player_id)}
             onStar={() => toggleStarter(p.player_id, false)}
             onSell={() => act(() => api.sell(id, p.player_id), "Vendido")} />)}
         </>}
@@ -376,7 +399,8 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
           {!lg.market_open ? <div className="empty">El mercado está cerrado.<br />Vuelve cuando abra para pujar.</div>
             : !market ? <div className="spin">Cargando mercado…</div>
               : market.listings.map((l: any) => (
-                <div key={l.listing_id} className={"pcard" + (l.my_bid ? " mine" : "")}>
+                <div key={l.listing_id} className={"pcard tapable" + (l.my_bid ? " mine" : "")}
+                  onClick={() => setPlayerFor(l.player_id)}>
                   <img className="ph" src={photo(l.feb_code)} onError={hideImg} alt="" />
                   <div className="mid">
                     <div className="nm">{shortName(l.name)}</div>
@@ -393,7 +417,8 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
                     {l.my_bid
                       ? <span className="mybid">Tu puja {l.my_bid}</span>
                       : null}
-                    <button className="btn sm" disabled={busy} onClick={() => setBidFor(l)}>
+                    <button className="btn sm" disabled={busy}
+                      onClick={(e) => { e.stopPropagation(); setBidFor(l); }}>
                       {l.my_bid ? "Cambiar" : "Pujar"}
                     </button>
                   </div>
@@ -403,8 +428,12 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
 
         {tab === "liga" && <>
           <div className="sec">Clasificación<div className="rest" /></div>
+          <p className="muted" style={{ fontSize: 12, margin: "-4px 4px 12px" }}>
+            Toca un mánager para ver su plantilla y sus cláusulas 💥
+          </p>
           {data.standings.map((r: any) => (
-            <div key={r.member_id} className={"rank" + (r.member_id === data.my_member_id ? " me" : "")}>
+            <div key={r.member_id} className={"rank tapable" + (r.member_id === data.my_member_id ? " me" : "")}
+              onClick={() => api.memberSquad(id, r.member_id).then(setRivalFor)}>
               <div className="pos">{r.rank}</div>
               <div className="who">
                 <b>{r.manager}</b>
@@ -428,6 +457,45 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
       </div>
 
       {msg && <div className="toast">{msg}</div>}
+
+      {playerFor && (
+        <PlayerSheet leagueId={id} playerId={playerFor} league={lg} busy={busy}
+          myMemberId={data.my_member_id} freeBudget={(data.my_budget ?? 0) - (data.my_committed ?? 0)}
+          onClose={() => setPlayerFor(null)}
+          onClause={async (pid: number) => { setPlayerFor(null); await act(() => api.payClause(id, pid), "💥 ¡Clausulazo!"); }}
+          onRaise={async (pid: number, v: number) => { setPlayerFor(null); await act(() => api.raiseClause(id, pid, v), "Cláusula subida"); }} />
+      )}
+
+      {rivalFor && (
+        <div className="overlay" onClick={() => setRivalFor(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <h3>{rivalFor.manager}</h3>
+            <div className="dim" style={{ fontSize: 12.5, marginBottom: 14 }}>
+              {rivalFor.points} pts · {rivalFor.budget} M€ libres · toca un jugador para su ficha
+            </div>
+            <div style={{ maxHeight: "56vh", overflowY: "auto" }}>
+              {rivalFor.squad.map((p: any) => (
+                <div key={p.player_id} className="pcard tapable"
+                  onClick={() => { setRivalFor(null); setPlayerFor(p.player_id); }}>
+                  <img className="ph" src={photo(p.feb_code)} onError={hideImg} alt="" />
+                  <div className="mid">
+                    <div className="nm">{shortName(p.name)}</div>
+                    <div className="tm">{p.team}</div>
+                    <div className="kv"><span>VAL <b>{p.val_avg}</b></span><span>Valor <b>{p.price}</b></span></div>
+                  </div>
+                  <div className="right">
+                    <div className="clause-tag">💥 {p.clause} M€</div>
+                    {p.clause_locked && <span className="muted" style={{ fontSize: 10.5 }}>
+                      🔒 {Math.floor(p.clause_lock_mins / 60)}h {p.clause_lock_mins % 60}m</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="btn ghost block" style={{ marginTop: 12 }} onClick={() => setRivalFor(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
       {bidFor && (
         <BidSheet listing={bidFor} budget={(market?.my_budget ?? 0) - (market?.committed ?? 0) + (bidFor.my_bid ?? 0)}
           onClose={() => setBidFor(null)}
@@ -447,26 +515,130 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
   );
 }
 
-function SquadCard({ p, busy, onStar, onSell }: any) {
+function SquadCard({ p, busy, onStar, onSell, onOpen }: any) {
+  const stop = (e: any, fn: () => void) => { e.stopPropagation(); fn(); };
   return (
-    <div className={"pcard" + (p.starter ? " starter" : "")}>
+    <div className={"pcard tapable" + (p.starter ? " starter" : "")} onClick={onOpen}>
       <img className="ph" src={photo(p.feb_code)} onError={hideImg} alt="" />
       <div className="mid">
         <div className="nm">{shortName(p.name)}</div>
         <div className="tm">{p.team}</div>
         <div className="kv">
           <span>VAL <b>{p.val_avg}</b></span>
-          <span>Pagaste <b>{p.buy_price}</b></span>
           <span className={p.delta >= 0 ? "up" : "down"}>{p.delta >= 0 ? "▲" : "▼"} {Math.abs(p.delta)}</span>
+          <span className="clause-mini">💥 {p.clause}{p.clause_locked ? " 🔒" : ""}</span>
         </div>
       </div>
       <div className="right">
         <div className="price tnum">{p.price}<span className="u">M€</span></div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button className={"star" + (p.starter ? " on" : "")} disabled={busy} onClick={onStar}
-            title={p.starter ? "Quitar de titulares" : "Poner de titular"}>⭐</button>
-          <button className="btn sm danger" disabled={busy} onClick={onSell}>Vender</button>
+          <button className={"star" + (p.starter ? " on" : "")} disabled={busy}
+            onClick={(e) => stop(e, onStar)} title={p.starter ? "Quitar de titulares" : "Poner de titular"}>⭐</button>
+          <button className="btn sm danger" disabled={busy} onClick={(e) => stop(e, onSell)}>Vender</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- ficha completa del jugador --------------------------- */
+function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget, busy, onClose, onClause, onRaise }: any) {
+  const [d, setD] = useState<any>(null);
+  const [raising, setRaising] = useState(false);
+  const [newClause, setNewClause] = useState(0);
+  useEffect(() => { api.player(leagueId, playerId).then((x) => { setD(x); setNewClause(Math.round(((x.clause ?? 0) + 10) * 10) / 10); }); }, [playerId]);
+
+  const mine = d && d.owner_member_id && d.owner_member_id === myMemberId;
+  const rival = d && d.owner_member_id && d.owner_member_id !== myMemberId;
+  const maxVal = d ? Math.max(...d.last.map((g: any) => Math.abs(g.val)), 1) : 1;
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        {!d ? <div className="spin">Cargando ficha…</div> : <>
+          <div style={{ display: "flex", gap: 13, alignItems: "center" }}>
+            <img className="ph big" src={photo(d.feb_code)} onError={hideImg} alt="" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h3>{shortName(d.name)}</h3>
+              <div className="muted" style={{ fontSize: 12.5 }}>{d.team}</div>
+              <div style={{ marginTop: 5, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span className="pill money">💰 <b>{d.price}</b> M€</span>
+                <span className="pill">{d.games} PJ · {d.wins}V-{d.losses}D</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="statgrid">
+            {[["PTS", d.avg.pts], ["REB", d.avg.reb], ["AST", d.avg.ast], ["VAL", d.avg.val]].map(([k, v]) => (
+              <div key={k as string} className="stat big"><b>{v as number}</b><span>{k as string}</span></div>
+            ))}
+          </div>
+          <div className="statgrid">
+            {[["MIN", d.avg.min], ["ROB", d.avg.stl], ["TAP", d.avg.blk], ["PER", d.avg.tov],
+              ["+/-", d.avg.pm], ["FLT", d.avg.pf]].map(([k, v]) => (
+              <div key={k as string} className="stat"><b>{v as number}</b><span>{k as string}</span></div>
+            ))}
+          </div>
+          <div className="statgrid">
+            {[["T. campo", d.pct.fg], ["2P", d.pct.t2], ["3P", d.pct.t3], ["TL", d.pct.tl], ["TS%", d.pct.ts]].map(([k, v]) => (
+              <div key={k as string} className="stat"><b>{v as number}%</b><span>{k as string}</span></div>
+            ))}
+          </div>
+
+          <div className="sec" style={{ marginTop: 16 }}>Últimas jornadas<div className="rest" /></div>
+          <div className="bars">
+            {d.last.map((g: any, i: number) => (
+              <div key={i} className="bar-col" title={`J${g.j}: ${g.val} val`}>
+                <div className={"bar" + (g.won ? " win" : "")} style={{ height: `${Math.max(4, (Math.abs(g.val) / maxVal) * 46)}px` }} />
+                <span>{g.val}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="sec" style={{ marginTop: 14 }}>Situación<div className="rest" /></div>
+          {!d.owner && <p className="dim" style={{ margin: "0 0 12px", fontSize: 13.5 }}>Jugador libre — se puede fichar en el mercado.</p>}
+          {d.owner && (
+            <div className="clause-box">
+              <div>
+                <div className="muted" style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em" }}>
+                  {mine ? "TU JUGADOR" : `DE ${String(d.owner).toUpperCase()}`}
+                </div>
+                <div style={{ fontSize: 21, fontWeight: 900, fontFamily: "var(--display)" }}>
+                  💥 {d.clause} <span style={{ fontSize: 12, color: "var(--muted)" }}>M€ cláusula</span>
+                </div>
+                {d.clause_locked && <div className="muted" style={{ fontSize: 12 }}>
+                  🔒 Blindado {Math.floor(d.clause_lock_mins / 60)}h {d.clause_lock_mins % 60}m</div>}
+              </div>
+            </div>
+          )}
+
+          {rival && (
+            <button className="btn block" disabled={busy || d.clause_locked || d.clause > freeBudget}
+              onClick={() => onClause(d.player_id)}>
+              {d.clause_locked ? "Blindado" : d.clause > freeBudget ? `Te faltan ${Math.round((d.clause - freeBudget) * 10) / 10} M€` : `💥 Pagar cláusula · ${d.clause} M€`}
+            </button>
+          )}
+          {mine && !raising && (
+            <button className="btn ghost block" onClick={() => setRaising(true)}>🔒 Subir cláusula</button>
+          )}
+          {mine && raising && (
+            <>
+              <div className="bid-row">
+                <button className="step" onClick={() => setNewClause((v) => Math.max(d.clause + 0.5, Math.round((v - 5) * 10) / 10))}>−</button>
+                <input type="number" step="0.5" value={newClause} className="tnum"
+                  onChange={(e) => setNewClause(Number(e.target.value))} />
+                <button className="step" onClick={() => setNewClause((v) => Math.round((v + 5) * 10) / 10)}>+</button>
+              </div>
+              <p className="muted" style={{ fontSize: 12, margin: "6px 0 12px" }}>
+                Subirla de {d.clause} a {newClause} M€ cuesta{" "}
+                <b className="gold">{Math.round((newClause - d.clause) * league.clause_raise_cost * 10) / 10} M€</b>.
+              </p>
+              <button className="btn block" disabled={busy || newClause <= d.clause}
+                onClick={() => onRaise(d.player_id, newClause)}>Confirmar subida</button>
+            </>
+          )}
+          <button className="btn ghost block" style={{ marginTop: 9 }} onClick={onClose}>Cerrar</button>
+        </>}
       </div>
     </div>
   );

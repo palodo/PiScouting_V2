@@ -230,6 +230,35 @@ select { cursor: pointer; }
 .quick button { flex: 1; background: var(--card); border: 1px solid var(--line); color: var(--dim); border-radius: 10px; padding: 9px; font-weight: 800; font-size: 12.5px; }
 .quick button:hover { border-color: var(--amber); color: #fff; }
 
+/* ---------- ficha de jugador / cláusulas ---------- */
+.pcard.tapable, .rank.tapable { cursor: pointer; }
+.pcard.tapable:active { transform: scale(0.99); }
+.pcard .ph.big { width: 68px; height: 84px; border-radius: 14px; }
+.clause-mini { color: var(--violet); font-weight: 800; }
+.clause-tag {
+  background: rgba(155, 123, 255, 0.15); color: var(--violet); border: 1px solid rgba(155, 123, 255, 0.35);
+  border-radius: 999px; padding: 5px 11px; font-weight: 900; font-size: 12.5px; white-space: nowrap;
+}
+.clause-box {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: linear-gradient(120deg, rgba(155, 123, 255, 0.14), var(--card) 60%);
+  border: 1px solid rgba(155, 123, 255, 0.34); border-radius: 15px; padding: 13px 15px; margin-bottom: 12px;
+}
+.statgrid { display: flex; gap: 7px; margin-top: 14px; }
+.statgrid .stat {
+  flex: 1; text-align: center; background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; padding: 9px 3px;
+}
+.statgrid .stat b { display: block; font-family: var(--display); font-size: 15px; font-weight: 900; }
+.statgrid .stat.big b { font-size: 20px; color: var(--gold); }
+.statgrid .stat span { font-size: 9px; color: var(--muted); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.bars { display: flex; align-items: flex-end; gap: 6px; height: 74px; padding: 0 2px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; }
+.bar { width: 100%; border-radius: 5px 5px 0 0; background: linear-gradient(180deg, var(--blue), #2c5fa8); min-height: 4px; }
+.bar.win { background: linear-gradient(180deg, var(--up), #1a9a63); }
+.bar-col span { font-size: 10px; font-weight: 800; color: var(--dim); font-variant-numeric: tabular-nums; }
+.sheet { max-height: 92vh; overflow-y: auto; }
+
 /* ---------- toast ---------- */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(92px + var(--safe-b)); z-index: 50;

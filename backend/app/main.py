@@ -318,6 +318,8 @@ class CreateLeagueBody(BaseModel):
     market_duration_h: int = 24
     market_size: int = 10
     initial_squad: int = 5
+    clause_factor: float = 2.0
+    clause_lock_h: int = 24
 
 
 class JoinLeagueBody(BaseModel):
@@ -399,7 +401,8 @@ def fantasy_create(body: CreateLeagueBody, user: User = Depends(auth.get_current
             win_bonus=body.win_bonus, start_jornada=body.start_jornada,
             market_weekday=body.market_weekday, market_hour=body.market_hour,
             market_duration_h=body.market_duration_h, market_size=body.market_size,
-            initial_squad=body.initial_squad)
+            initial_squad=body.initial_squad, clause_factor=body.clause_factor,
+            clause_lock_h=body.clause_lock_h)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return fantasy_mod.league_out(lg)
@@ -520,6 +523,59 @@ def fantasy_advance(league_id: int, user: User = Depends(auth.get_current_user),
     if lg.owner_user_id != user.id:
         raise HTTPException(403, "Solo el creador de la liga puede avanzar jornada")
     return fantasy_mod.advance(session, lg)
+
+
+class ClauseBody(BaseModel):
+    player_id: int
+
+
+class RaiseClauseBody(BaseModel):
+    player_id: int
+    new_clause: float
+
+
+@app.get("/api/fantasy/leagues/{league_id}/player/{player_id}")
+def fantasy_player(league_id: int, player_id: int, user: User = Depends(auth.get_current_user),
+                   session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    try:
+        return fantasy_mod.player_detail(session, lg, player_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.get("/api/fantasy/leagues/{league_id}/members/{member_id}/squad")
+def fantasy_member_squad(league_id: int, member_id: int,
+                         user: User = Depends(auth.get_current_user),
+                         session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    try:
+        return fantasy_mod.member_squad(session, lg, member_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/clause")
+def fantasy_clause(league_id: int, body: ClauseBody, user: User = Depends(auth.get_current_user),
+                   session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.pay_clause(session, lg, m, body.player_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/clause/raise")
+def fantasy_clause_raise(league_id: int, body: RaiseClauseBody,
+                         user: User = Depends(auth.get_current_user),
+                         session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.raise_clause(session, lg, m, body.player_id, body.new_clause)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/fantasy/leagues/{league_id}/feed")

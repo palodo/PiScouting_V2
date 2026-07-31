@@ -52,6 +52,12 @@ export const api = {
   lineup: (id: number, starter_ids: number[]) => post(`/fantasy/leagues/${id}/lineup`, { starter_ids }),
   advance: (id: number) => post(`/fantasy/leagues/${id}/advance`),
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),
+
+  player: (id: number, playerId: number) => get(`/fantasy/leagues/${id}/player/${playerId}`),
+  memberSquad: (id: number, memberId: number) => get(`/fantasy/leagues/${id}/members/${memberId}/squad`),
+  payClause: (id: number, player_id: number) => post(`/fantasy/leagues/${id}/clause`, { player_id }),
+  raiseClause: (id: number, player_id: number, new_clause: number) =>
+    post(`/fantasy/leagues/${id}/clause/raise`, { player_id, new_clause }),
 };
 
 export const photo = (c: string | null | undefined) =>

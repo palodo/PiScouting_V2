@@ -141,6 +141,10 @@ class FantasyLeague(SQLModel, table=True):
     lineup_size: int = 5
     initial_squad: int = 5       # jugadores aleatorios al entrar (para poder jugar ya)
     win_bonus: float = 4.0
+    # cláusula de rescisión: otro mánager puede llevarse a tu jugador pagándola.
+    clause_factor: float = 2.0   # cláusula = valor · factor
+    clause_lock_h: int = 24      # horas de gracia tras fichar (blindado)
+    clause_raise_cost: float = 0.25  # coste de subir la cláusula (% de la subida)
     start_jornada: int = 0       # los precios de salida usan los partidos hasta aquí
     current_jornada: int = 0     # última jornada ya puntuada
     max_jornada: int = 0
@@ -180,6 +184,8 @@ class FantasyPick(SQLModel, table=True):
     buy_price: float = 0.0
     buy_jornada: int = 0
     starter: bool = Field(default=False, index=True)
+    clause: float = 0.0                                  # cláusula de rescisión
+    clause_locked_until: Optional[datetime] = None       # blindaje tras fichar (UTC)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
