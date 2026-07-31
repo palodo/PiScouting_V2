@@ -121,7 +121,11 @@ class PlayerMatchStat(SQLModel, table=True):
 class FantasyLeague(SQLModel, table=True):
     """Liga fantasy. Se juega dentro de una 'conferencia' (competición + grupo): solo se
     pueden fichar jugadores de los equipos de ese grupo. La temporada se juega en modo
-    repetición, avanzando jornada a jornada desde `start_jornada`."""
+    repetición, avanzando jornada a jornada desde `start_jornada`.
+
+    Mercado estilo Biwenger: se abre un día y hora concretos de la semana, saca una tanda
+    aleatoria de jugadores libres y se cierra pasadas `market_duration_h` horas resolviendo
+    las pujas (gana la más alta)."""
     __tablename__ = "fantasy_leagues"
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -135,10 +139,22 @@ class FantasyLeague(SQLModel, table=True):
     budget: float = 100.0
     squad_size: int = 10
     lineup_size: int = 5
+    initial_squad: int = 5       # jugadores aleatorios al entrar (para poder jugar ya)
     win_bonus: float = 4.0
     start_jornada: int = 0       # los precios de salida usan los partidos hasta aquí
     current_jornada: int = 0     # última jornada ya puntuada
     max_jornada: int = 0
+
+    # --- mercado programado ---
+    market_weekday: int = 4      # 0=lunes … 6=domingo (por defecto viernes)
+    market_hour: int = 20        # hora local (Europe/Madrid) a la que abre
+    market_duration_h: int = 24  # horas que permanece abierto
+    market_size: int = 10        # jugadores que salen a subasta en cada tanda
+    market_round: int = 0
+    market_opens_at: Optional[datetime] = None   # UTC
+    market_closes_at: Optional[datetime] = None  # UTC
+    market_open: bool = False
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -165,6 +181,45 @@ class FantasyPick(SQLModel, table=True):
     buy_jornada: int = 0
     starter: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyListing(SQLModel, table=True):
+    """Un jugador sacado a subasta en una tanda del mercado."""
+    __tablename__ = "fantasy_listings"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    round_no: int = Field(default=0, index=True)
+    player_id: int = Field(foreign_key="players.id", index=True)
+    price: float = 0.0            # precio de salida (puja mínima)
+    resolved: bool = Field(default=False, index=True)
+    winner_member_id: Optional[int] = Field(default=None, foreign_key="fantasy_members.id")
+    sold_price: Optional[float] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyBid(SQLModel, table=True):
+    """Puja de un mánager por un jugador en subasta."""
+    __tablename__ = "fantasy_bids"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    listing_id: int = Field(foreign_key="fantasy_listings.id", index=True)
+    member_id: int = Field(foreign_key="fantasy_members.id", index=True)
+    amount: float = 0.0
+    status: str = Field(default="active", index=True)  # active|won|lost|cancelled
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyEvent(SQLModel, table=True):
+    """Actividad de la liga (fichajes, ventas, apertura/cierre de mercado, jornadas)."""
+    __tablename__ = "fantasy_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    kind: str = Field(default="info", index=True)  # market|signing|sale|jornada|join
+    text: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 class Shot(SQLModel, table=True):

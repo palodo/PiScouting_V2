@@ -5,8 +5,6 @@ import Login from "./pages/Login";
 import MyTeam from "./pages/MyTeam";
 import Scout from "./pages/Scout";
 import Rankings from "./pages/Rankings";
-import Fantasy from "./pages/Fantasy";
-import FantasyLeague from "./pages/FantasyLeague";
 import TeamPage from "./pages/TeamPage";
 import PlayerPage from "./pages/PlayerPage";
 import MatchPage from "./pages/MatchPage";
@@ -20,7 +18,6 @@ function Sidebar() {
     { to: "/", end: true, ico: "🏠", label: "Mi equipo" },
     { to: "/rankings", ico: "📊", label: "Rankings" },
     { to: "/compare", ico: "⚔️", label: "Comparar" },
-    { to: "/fantasy", ico: "🏆", label: "Fantasy" },
     { to: "/settings", ico: "⚙️", label: "Ajustes" },
   ];
   return (
@@ -113,8 +110,6 @@ export default function App() {
           <Route path="/" element={<MyTeam />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/compare" element={<ComparePage />} />
-          <Route path="/fantasy" element={<Fantasy />} />
-          <Route path="/fantasy/:id" element={<FantasyLeague />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/scout/:id" element={<Scout />} />
           <Route path="/team/:id" element={<TeamPage />} />

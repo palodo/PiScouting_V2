@@ -1,4 +1,14 @@
-# Desplegar PiScouting gratis (web)
+# Desplegar gratis (web)
+
+> El proyecto tiene **dos webs independientes** que comparten backend:
+> - `frontend/` → **PiScouting** (scouting, informes PDF, rankings). Puerto 5173 en local.
+> - `fantasy-web/` → **PiFantasy** (la app de fantasy con mercado de subastas). Puerto 5174.
+>
+> Puedes desplegar solo una o las dos: son dos proyectos separados en Cloudflare/Vercel,
+> cada uno con su `VITE_API_BASE` apuntando al mismo backend. Añade **ambos** dominios a
+> `FRONTEND_ORIGIN` (separados por coma) en Render.
+
+
 
 Stack 100% gratuito y **sin tarjeta**:
 

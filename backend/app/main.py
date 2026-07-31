@@ -300,6 +300,9 @@ def scout_pdf(team_id: int, session: Session = Depends(get_session)):
 
 
 # ============================ Fantasy ============================
+from .models import FantasyMember  # noqa: E402
+
+
 class CreateLeagueBody(BaseModel):
     name: str
     competition: str
@@ -310,11 +313,25 @@ class CreateLeagueBody(BaseModel):
     lineup_size: int = 5
     win_bonus: float = 4.0
     start_jornada: Optional[int] = None
+    market_weekday: int = 4
+    market_hour: int = 20
+    market_duration_h: int = 24
+    market_size: int = 10
+    initial_squad: int = 5
 
 
 class JoinLeagueBody(BaseModel):
     join_code: str
     manager_name: str
+
+
+class BidBody(BaseModel):
+    listing_id: int
+    amount: float
+
+
+class ListingBody(BaseModel):
+    listing_id: int
 
 
 class PlayerBody(BaseModel):
@@ -332,9 +349,15 @@ def _get_league(session: Session, league_id: int) -> FantasyLeague:
     return lg
 
 
+def _member_or_403(session: Session, league_id: int, user_id: int) -> FantasyMember:
+    m = fantasy_mod.member_of(session, league_id, user_id)
+    if not m:
+        raise HTTPException(403, "No participas en esta liga")
+    return m
+
+
 @app.get("/api/fantasy/competitions")
 def fantasy_competitions(season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
-    """Conferencias donde se permite jugar al fantasy."""
     from .config import FANTASY_COMPETITIONS
     teams = session.exec(select(Team).where(
         Team.season == season, Team.competition.in_(list(FANTASY_COMPETITIONS)))).all()
@@ -351,28 +374,32 @@ def fantasy_competitions(season: str = DEFAULT_SEASON, session: Session = Depend
 @app.get("/api/fantasy/leagues")
 def fantasy_my_leagues(user: User = Depends(auth.get_current_user),
                        session: Session = Depends(get_session)):
-    from .models import FantasyMember
-    memberships = session.exec(select(FantasyMember).where(FantasyMember.user_id == user.id)).all()
     out = []
-    for m in memberships:
+    for m in session.exec(select(FantasyMember).where(FantasyMember.user_id == user.id)).all():
         lg = session.get(FantasyLeague, m.league_id)
-        if lg:
-            out.append({**fantasy_mod.league_out(lg),
-                        "member_points": m.total_points,
-                        "members": len(session.exec(select(FantasyMember).where(
-                            FantasyMember.league_id == lg.id)).all())})
+        if not lg:
+            continue
+        fantasy_mod.sync_market(session, lg)
+        members = session.exec(select(FantasyMember).where(
+            FantasyMember.league_id == lg.id)).all()
+        out.append({**fantasy_mod.league_out(lg), "member_points": m.total_points,
+                    "members": len(members)})
     return out
 
 
 @app.post("/api/fantasy/leagues")
 def fantasy_create(body: CreateLeagueBody, user: User = Depends(auth.get_current_user),
                    session: Session = Depends(get_session)):
+    fallback = user.name or user.email.split("@")[0]
     try:
         lg = fantasy_mod.create_league(
             session, user.id, body.name.strip() or "Mi liga", body.competition, body.grupo,
-            DEFAULT_SEASON, body.manager_name.strip() or (user.name or user.email.split("@")[0]),
+            DEFAULT_SEASON, body.manager_name.strip() or fallback,
             budget=body.budget, squad_size=body.squad_size, lineup_size=body.lineup_size,
-            win_bonus=body.win_bonus, start_jornada=body.start_jornada)
+            win_bonus=body.win_bonus, start_jornada=body.start_jornada,
+            market_weekday=body.market_weekday, market_hour=body.market_hour,
+            market_duration_h=body.market_duration_h, market_size=body.market_size,
+            initial_squad=body.initial_squad)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return fantasy_mod.league_out(lg)
@@ -385,8 +412,9 @@ def fantasy_join(body: JoinLeagueBody, user: User = Depends(auth.get_current_use
         FantasyLeague.join_code == body.join_code.strip().upper())).first()
     if not lg:
         raise HTTPException(404, "No existe una liga con ese código")
-    fantasy_mod.join_league(session, lg, user.id,
-                            body.manager_name.strip() or (user.name or user.email.split("@")[0]))
+    fallback = user.name or user.email.split("@")[0]
+    fantasy_mod.join_league(session, lg, user.id, body.manager_name.strip() or fallback)
+    fantasy_mod.sync_market(session, lg)
     return fantasy_mod.league_out(lg)
 
 
@@ -394,6 +422,7 @@ def fantasy_join(body: JoinLeagueBody, user: User = Depends(auth.get_current_use
 def fantasy_league_detail(league_id: int, user: User = Depends(auth.get_current_user),
                           session: Session = Depends(get_session)):
     lg = _get_league(session, league_id)
+    fantasy_mod.sync_market(session, lg)
     member = fantasy_mod.member_of(session, league_id, user.id)
     return {
         "league": fantasy_mod.league_out(lg),
@@ -401,7 +430,9 @@ def fantasy_league_detail(league_id: int, user: User = Depends(auth.get_current_
         "standings": fantasy_mod.standings(session, lg),
         "my_member_id": member.id if member else None,
         "my_budget": member.budget_remaining if member else None,
+        "my_committed": fantasy_mod.committed_amount(session, member.id) if member else 0.0,
         "my_squad": fantasy_mod.my_squad(session, lg, member) if member else [],
+        "feed": fantasy_mod.feed(session, league_id, 30),
     }
 
 
@@ -410,27 +441,52 @@ def fantasy_market(league_id: int, user: User = Depends(auth.get_current_user),
                    session: Session = Depends(get_session)):
     lg = _get_league(session, league_id)
     member = fantasy_mod.member_of(session, league_id, user.id)
-    owned = {p.player_id for p in fantasy_mod.picks_of(session, member.id)} if member else set()
-    rows = fantasy_mod.market(session, lg)
-    for r in rows:
-        r["owned"] = r["player_id"] in owned
-    return {"market": rows, "my_budget": member.budget_remaining if member else None}
+    return fantasy_mod.market(session, lg, member)
 
 
-def _member_or_403(session, league_id, user_id) -> "FantasyMember":
-    m = fantasy_mod.member_of(session, league_id, user_id)
-    if not m:
-        raise HTTPException(403, "No participas en esta liga")
-    return m
-
-
-@app.post("/api/fantasy/leagues/{league_id}/buy")
-def fantasy_buy(league_id: int, body: PlayerBody, user: User = Depends(auth.get_current_user),
+@app.post("/api/fantasy/leagues/{league_id}/bid")
+def fantasy_bid(league_id: int, body: BidBody, user: User = Depends(auth.get_current_user),
                 session: Session = Depends(get_session)):
     lg = _get_league(session, league_id)
     m = _member_or_403(session, league_id, user.id)
     try:
-        return fantasy_mod.buy(session, lg, m, body.player_id)
+        return fantasy_mod.place_bid(session, lg, m, body.listing_id, body.amount)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/bid/cancel")
+def fantasy_bid_cancel(league_id: int, body: ListingBody,
+                       user: User = Depends(auth.get_current_user),
+                       session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.cancel_bid(session, lg, m, body.listing_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/market/close")
+def fantasy_market_close(league_id: int, user: User = Depends(auth.get_current_user),
+                         session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    if lg.owner_user_id != user.id:
+        raise HTTPException(403, "Solo el creador puede cerrar el mercado")
+    try:
+        return fantasy_mod.close_market_now(session, lg)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/market/open")
+def fantasy_market_open(league_id: int, user: User = Depends(auth.get_current_user),
+                        session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    if lg.owner_user_id != user.id:
+        raise HTTPException(403, "Solo el creador puede abrir el mercado")
+    try:
+        return fantasy_mod.open_market_now(session, lg)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -464,3 +520,10 @@ def fantasy_advance(league_id: int, user: User = Depends(auth.get_current_user),
     if lg.owner_user_id != user.id:
         raise HTTPException(403, "Solo el creador de la liga puede avanzar jornada")
     return fantasy_mod.advance(session, lg)
+
+
+@app.get("/api/fantasy/leagues/{league_id}/feed")
+def fantasy_feed(league_id: int, user: User = Depends(auth.get_current_user),
+                 session: Session = Depends(get_session)):
+    _get_league(session, league_id)
+    return fantasy_mod.feed(session, league_id, 50)
