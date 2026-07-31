@@ -24,10 +24,8 @@ from app.config import DB_PATH
 
 # Orden respetando las claves foráneas
 TABLES = ["teams", "players", "matches", "player_match_stats", "shots",
-          "users", "fantasy_leagues", "fantasy_members", "fantasy_picks"]
-# Columnas booleanas (SQLite las guarda como 0/1; Postgres necesita bool)
-BOOLS = {"player_match_stats": ["starter", "is_home"], "shots": ["made", "is_home"],
-         "fantasy_picks": ["starter"]}
+          "users", "fantasy_leagues", "fantasy_members", "fantasy_picks",
+          "fantasy_listings", "fantasy_bids", "fantasy_events"]
 
 
 def _normalize(url: str) -> str:
@@ -36,6 +34,27 @@ def _normalize(url: str) -> str:
     if url.startswith("postgresql://"):
         return "postgresql+psycopg://" + url[len("postgresql://"):]
     return url
+
+
+def _coerce(df: "pd.DataFrame", table: str) -> "pd.DataFrame":
+    """Adapta los tipos de SQLite a los de Postgres, según la metadata de los modelos.
+
+    SQLite no tiene ni booleanos ni fechas nativas: guarda 0/1 y texto ISO. Postgres sí,
+    y rechaza el INSERT si le llega un varchar donde espera timestamp. Derivamos las
+    columnas a convertir de SQLModel.metadata para no mantener listas a mano.
+    """
+    cols = SQLModel.metadata.tables[table].columns
+    for col in cols:
+        if col.name not in df.columns:
+            continue
+        kind = col.type.__class__.__name__
+        if kind == "Boolean":
+            df[col.name] = df[col.name].astype(bool)
+        elif kind in ("DateTime", "Date"):
+            # errors="coerce" deja NaT en las fechas ilegibles; Postgres las acepta como NULL
+            df[col.name] = pd.to_datetime(df[col.name], errors="coerce").astype(object).where(
+                lambda s: s.notna(), None)
+    return df
 
 
 def main() -> None:
@@ -58,13 +77,16 @@ def main() -> None:
             except Exception as e:
                 print(f"  {t}: omitida ({e})")
                 continue
-            for col in BOOLS.get(t, []):
-                if col in df.columns:
-                    df[col] = df[col].astype(bool)
+            df = _coerce(df, t)
             # trocea para no superar el límite de parámetros de Postgres (~65535)
             ncols = max(1, len(df.columns))
             chunk = max(1, 50000 // ncols)
-            df.to_sql(t, tgt, if_exists="append", index=False, chunksize=chunk, method="multi")
+            # dtype explícito: si una columna viene entera pero vacía (p.ej. winner_member_id
+            # sin subastas resueltas), pandas la infiere como texto y Postgres rechaza el INSERT.
+            dtype = {c.name: c.type for c in SQLModel.metadata.tables[t].columns
+                     if c.name in df.columns}
+            df.to_sql(t, tgt, if_exists="append", index=False, chunksize=chunk,
+                      method="multi", dtype=dtype)
             print(f"  {t}: {len(df)} filas")
 
     print("Reajustando secuencias de IDs…")

@@ -48,20 +48,33 @@ Stack 100% gratuito y **sin tarjeta**:
 4. Deploy. Anota la URL del backend, p.ej. `https://piscouting-api.onrender.com`.
 5. Comprueba: abre `https://piscouting-api.onrender.com/api/health` → debe devolver un JSON.
 
-## 3. Frontend → Cloudflare Pages
+## 3. Webs → Cloudflare Pages
+
+Son **dos proyectos separados** en Cloudflare, uno por cada web. Repite estos pasos para cada
+uno cambiando solo el *root directory*:
+
+| Web | Root directory | URL de ejemplo |
+|---|---|---|
+| PiScouting | `frontend` | `https://piscouting.pages.dev` |
+| PiFantasy | `fantasy-web` | `https://pifantasy.pages.dev` |
 
 1. En **https://pages.cloudflare.com** → **Create → Connect to Git** → elige el repo.
 2. Configuración de build:
-   - **Root directory:** `frontend`
+   - **Root directory:** `frontend` (o `fantasy-web`)
    - **Build command:** `npm run build`
    - **Build output directory:** `dist`
    - **Variable de entorno:** `VITE_API_BASE` = `https://piscouting-api.onrender.com` (la URL del paso 2)
-3. Deploy. Anota la URL de la web, p.ej. `https://piscouting.pages.dev`.
-4. Vuelve a **Render** → variable `FRONTEND_ORIGIN` = `https://piscouting.pages.dev` → guarda (redeploy).
-   *(Esto habilita el CORS entre tu web y tu backend.)*
+3. Deploy y anota la URL.
+4. Cuando tengas las dos, vuelve a **Render** → `FRONTEND_ORIGIN` =
+   `https://piscouting.pages.dev,https://pifantasy.pages.dev` (**separadas por coma, sin espacios**)
+   → guarda (redeploy). *(Esto habilita el CORS entre tus webs y el backend.)*
 
-Listo: entra en tu URL de Cloudflare, crea una cuenta y a jugar. El `_redirects` ya está incluido
-para que las rutas del fantasy (`/fantasy/:id`) funcionen al recargar.
+Listo: entra en cualquiera de las dos URLs, crea una cuenta y a jugar. El `_redirects` de cada web
+ya está incluido para que las rutas internas funcionen al recargar.
+
+> Las dos webs comparten backend y base de datos, pero **no la sesión**: cada una guarda su propio
+> token (`pi_token` y `pf_token`), así que tendrás que entrar en cada una por separado aunque la
+> cuenta sea la misma.
 
 ---
 
@@ -71,5 +84,8 @@ para que las rutas del fantasy (`/fantasy/:id`) funcionen al recargar.
 - **Actualizar la web**: cada `git push` a `main` redepliega backend (Render) y frontend (Cloudflare) solos.
 - **El backend se duerme** en el plan free: si quieres evitar el arranque en frío, un cron gratuito
   (p.ej. cron-job.org) que llame a `/api/health` cada 10 min lo mantiene despierto.
+- **El mercado del fantasy no necesita cron**: `sync_market` abre y cierra las tandas de forma
+  perezosa, al primer acceso a la liga. Aunque Render duerma el backend justo a la hora de cierre,
+  las pujas se resuelven en cuanto alguien entra; solo se retrasa el aviso, no el resultado.
 - **Alternativa a Cloudflare**: Vercel o Netlify sirven igual (mismo `VITE_API_BASE` y `_redirects`).
 - **En local no cambia nada**: sin `DATABASE_URL` la app sigue usando SQLite como siempre.
