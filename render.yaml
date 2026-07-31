@@ -7,13 +7,20 @@ services:
     runtime: python
     rootDir: backend
     plan: free
-    buildCommand: pip install -r requirements.txt
+    # seed_db.py siembra Postgres desde data/scouting.db.gz (el dump que viaja en el repo)
+    # la primera vez. Es idempotente: en los siguientes deploys no toca nada y NO borra ligas.
+    buildCommand: pip install -r requirements.txt && python seed_db.py
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
       - key: DATABASE_URL      # cadena de conexión de Neon (Postgres)
         sync: false
-      - key: FRONTEND_ORIGIN   # dominio del frontend, p.ej. https://piscouting.pages.dev
+      - key: FRONTEND_ORIGIN   # dominio(s) del frontend, separados por coma
         sync: false
       - key: PISCOUTING_SECRET # secreto para firmar los JWT (se genera solo)
         generateValue: true
+      - key: SEED_SKIP_SHOTS   # 1 = siembra sin los ~322k tiros (el fantasy no los usa).
+        value: "1"             # Medido en local: ~45 s frente a ~1 min 45 s sembrando todo;
+                               # contra Neon, por red, cuenta con bastante más en ambos casos.
+                               # Ponlo a 0 ANTES del primer deploy si quieres también los
+                               # mapas de tiro del scouting (después ya no resiembra).

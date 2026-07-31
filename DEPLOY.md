@@ -23,7 +23,35 @@ Stack 100% gratuito y **sin tarjeta**:
 
 ---
 
+## Atajo: publicar solo PiFantasy (unos 15 min, todo desde el navegador)
+
+Si solo quieres que unos amigos prueben el fantasy, **no hace falta migrar nada a mano**:
+el backend siembra la base él solo en el primer deploy, a partir del dump del repo.
+
+1. **Neon** → entra en https://neon.tech con GitHub, crea un proyecto y copia la
+   *connection string* (`postgresql://…?sslmode=require`).
+2. **Render** → https://render.com con GitHub → **New → Blueprint** → elige este repo
+   (detecta `render.yaml`) → pega la cadena de Neon en `DATABASE_URL` → **Deploy**.
+   El build siembra la base y arranca la API; el primer deploy tarda unos minutos (sube
+   ~61k filas a Neon). Copia la URL, p.ej. `https://piscouting-api.onrender.com`.
+3. **Cloudflare Pages** → https://pages.cloudflare.com con GitHub → **Create → Connect to Git**
+   → este repo → **Root directory:** `fantasy-web` · **Build command:** `npm run build`
+   · **Output:** `dist` · variable `VITE_API_BASE` = la URL de Render → **Deploy**.
+4. Vuelve a Render → `FRONTEND_ORIGIN` = la URL de Cloudflare → guarda.
+
+Ya está: pasa la URL de Cloudflare a tus amigos, que se creen cuenta, y el que cree la liga
+comparte el **código de invitación** que sale arriba para que los demás entren con «Unirme».
+
+> El paso 3 es el único que se puede saltar si prefieres probarlo tú solo en local
+> (`cd fantasy-web && npm run dev` apuntando al backend de Render con `VITE_API_BASE`).
+
+---
+
 ## 1. Base de datos → Neon
+
+Con el atajo de arriba **este paso ya está hecho** (lo hace `seed_db.py` en el build).
+Migra a mano solo si quieres subir tus datos locales — ligas y usuarios incluidos —
+en vez del dump del repo:
 
 1. Crea cuenta en **https://neon.tech** (con GitHub/Google, sin tarjeta) y un proyecto.
 2. Copia la **connection string** (algo como `postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require`).
@@ -43,6 +71,9 @@ Stack 100% gratuito y **sin tarjeta**:
 2. En **https://render.com** → **New → Blueprint** → conecta el repo (detecta `render.yaml`).
 3. Define las variables de entorno del servicio `piscouting-api`:
    - `DATABASE_URL` = la connection string de Neon (paso 1).
+   - `SEED_SKIP_SHOTS` = viene a `1` (siembra sin los ~322k tiros, que el fantasy no usa).
+     Ponlo a `0` **antes del primer deploy** si quieres los mapas de tiro del scouting:
+     el sembrado solo ocurre una vez, después ya no vuelve a tocar la base.
    - `FRONTEND_ORIGIN` = *(la rellenas en el paso 3, con la URL de la web)*.
    - `PISCOUTING_SECRET` = déjala, se genera sola.
 4. Deploy. Anota la URL del backend, p.ej. `https://piscouting-api.onrender.com`.

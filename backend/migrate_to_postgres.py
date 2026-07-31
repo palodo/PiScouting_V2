@@ -16,7 +16,7 @@ import os
 import sys
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlmodel import SQLModel
 
 from app import models  # noqa: F401  (registra las tablas en SQLModel.metadata)
@@ -57,26 +57,26 @@ def _coerce(df: "pd.DataFrame", table: str) -> "pd.DataFrame":
     return df
 
 
-def main() -> None:
-    target = os.environ.get("TARGET_DATABASE_URL") or (sys.argv[1] if len(sys.argv) > 1 else "")
-    if not target:
-        sys.exit('Uso: python migrate_to_postgres.py "<URL_POSTGRES>"  (o define TARGET_DATABASE_URL)')
-    if not DB_PATH.exists():
-        sys.exit(f"No existe la BBDD local: {DB_PATH} (descomprime data/scouting.db.gz primero)")
+def copy_all(sqlite_path, target_url: str, tables=None, log=print) -> None:
+    """Copia las tablas de un SQLite a Postgres y reajusta las secuencias de IDs.
 
-    src = create_engine(f"sqlite:///{DB_PATH}")
-    tgt = create_engine(_normalize(target))
+    Reutilizada por seed_db.py para sembrar la base en el primer despliegue.
+    """
+    tables = list(tables if tables is not None else TABLES)
+    src = create_engine(f"sqlite:///{sqlite_path}")
+    tgt = create_engine(_normalize(target_url))
 
-    print("Creando tablas en Postgres…")
+    log("Creando tablas en Postgres…")
     SQLModel.metadata.create_all(tgt)
 
+    src_tables = set(inspect(src).get_table_names())
     with src.connect() as sc:
-        for t in TABLES:
-            try:
-                df = pd.read_sql(f"SELECT * FROM {t}", sc)
-            except Exception as e:
-                print(f"  {t}: omitida ({e})")
+        for t in tables:
+            if t not in src_tables:
+                # Normal con dumps anteriores al fantasy: create_all ya la ha creado vacía.
+                log(f"  {t}: no está en el origen, se queda vacía")
                 continue
+            df = pd.read_sql(f"SELECT * FROM {t}", sc)
             df = _coerce(df, t)
             # trocea para no superar el límite de parámetros de Postgres (~65535)
             ncols = max(1, len(df.columns))
@@ -87,15 +87,25 @@ def main() -> None:
                      if c.name in df.columns}
             df.to_sql(t, tgt, if_exists="append", index=False, chunksize=chunk,
                       method="multi", dtype=dtype)
-            print(f"  {t}: {len(df)} filas")
+            log(f"  {t}: {len(df)} filas")
 
-    print("Reajustando secuencias de IDs…")
+    log("Reajustando secuencias de IDs…")
     with tgt.begin() as conn:
-        for t in TABLES:
+        for t in tables:
             conn.execute(text(
                 f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), "
                 f"(SELECT COALESCE(MAX(id), 1) FROM {t}))"
             ))
+
+
+def main() -> None:
+    target = os.environ.get("TARGET_DATABASE_URL") or (sys.argv[1] if len(sys.argv) > 1 else "")
+    if not target:
+        sys.exit('Uso: python migrate_to_postgres.py "<URL_POSTGRES>"  (o define TARGET_DATABASE_URL)')
+    if not DB_PATH.exists():
+        sys.exit(f"No existe la BBDD local: {DB_PATH} (descomprime data/scouting.db.gz primero)")
+
+    copy_all(DB_PATH, target)
     print("✅ Migración completada.")
 
 
