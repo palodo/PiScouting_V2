@@ -18,7 +18,12 @@ Stack 100% gratuito y **sin tarjeta**:
 | Backend (FastAPI) | **Render** | web service free (se duerme tras 15 min) |
 | Frontend (React) | **Cloudflare Pages** (o Vercel) | estático, siempre activo |
 
-> La BBDD ocupa ~45 MB, así que cabe de sobra en el Postgres gratis de Neon.
+Ninguno de los tres pide tarjeta, así que **no hay forma de que te cobren por sorpresa**: si se
+agota alguna cuota, el servicio se para hasta el mes siguiente, no se factura.
+
+Medido sobre Postgres 16 con este dump: **21 MB** sembrando sin los tiros (`SEED_SKIP_SHOTS=1`)
+y **71 MB** con todo. Contra el límite de 0.5 GB de Neon, es un 4 % y un 14 %.
+
 > Único "pero": el backend gratis de Render **se duerme**; la primera visita tras un rato tarda ~30-60 s.
 
 ---
@@ -118,12 +123,33 @@ ya está incluido para que las rutas internas funcionen al recargar.
 
 ---
 
+## Cuotas de los planes gratuitos
+
+Consultado en agosto de 2026 — estas cifras cambian, confírmalas al registrarte.
+
+| Servicio | Cuota gratis | Lo que consume esta app |
+|---|---|---|
+| **Neon** | 0,5 GB · 100 CU-hours/mes · 5 GB de transferencia | 21-71 MB de disco; cómputo solo mientras alguien juega |
+| **Render** | 750 h/mes · duerme a los 15 min | Cubre un servicio de sobra si se le deja dormir |
+| **Cloudflare Pages** | 500 builds/mes · 180 min de build · ancho de banda ilimitado | 1 build por cada push a `main` |
+
+Ninguno pide tarjeta en el plan gratuito. Al agotar una cuota el servicio se suspende hasta el
+mes siguiente; no hay factura ni upgrade automático.
+
+> No uses el **Postgres gratuito de Render** en lugar de Neon: caduca a los 30 días de crearlo
+> y te quedarías sin base de datos y sin las ligas.
+
 ## Notas y mantenimiento
 
 - **Datos de prueba**: el usuario `pau@test.com` y todo el histórico quedan en Neon tras la migración.
 - **Actualizar la web**: cada `git push` a `main` redepliega backend (Render) y frontend (Cloudflare) solos.
-- **El backend se duerme** en el plan free: si quieres evitar el arranque en frío, un cron gratuito
-  (p.ej. cron-job.org) que llame a `/api/health` cada 10 min lo mantiene despierto.
+- **El backend se duerme** en el plan free y la primera visita tarda ~30-60 s. Es tentador poner un
+  cron que llame a `/api/health` cada 10 min para evitarlo, pero **no lo hagas con Neon gratis**:
+  su plan free da 100 CU-hours al mes y la base solo se suspende tras 5 min sin consultas. Un ping
+  continuo la mantendría despierta las ~730 h del mes → 0,25 CU × 730 h ≈ 182 CU-hours, casi el
+  doble de la cuota, y la base se pararía a mitad de mes. Con uso normal (se consume solo mientras
+  alguien usa la app) no te acercas al límite. Si el arranque en frío te molesta de verdad, sale
+  más a cuenta pagar Render que reventar la cuota de Neon.
 - **El mercado del fantasy no necesita cron**: `sync_market` abre y cierra las tandas de forma
   perezosa, al primer acceso a la liga. Aunque Render duerma el backend justo a la hora de cierre,
   las pujas se resuelven en cuanto alguien entra; solo se retrasa el aviso, no el resultado.
