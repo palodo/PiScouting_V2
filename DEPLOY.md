@@ -28,16 +28,25 @@ Stack 100% gratuito y **sin tarjeta**:
 Si solo quieres que unos amigos prueben el fantasy, **no hace falta migrar nada a mano**:
 el backend siembra la base él solo en el primer deploy, a partir del dump del repo.
 
+**Antes de empezar, decide el nombre del proyecto de Cloudflare** (p.ej. `pifantasy`): su URL
+será `https://<ese-nombre>.pages.dev` y así puedes rellenar `FRONTEND_ORIGIN` en el paso 2 sin
+tener que volver a Render al final.
+
 1. **Neon** → entra en https://neon.tech con GitHub, crea un proyecto y copia la
    *connection string* (`postgresql://…?sslmode=require`).
 2. **Render** → https://render.com con GitHub → **New → Blueprint** → elige este repo
-   (detecta `render.yaml`) → pega la cadena de Neon en `DATABASE_URL` → **Deploy**.
-   El build siembra la base y arranca la API; el primer deploy tarda unos minutos (sube
-   ~61k filas a Neon). Copia la URL, p.ej. `https://piscouting-api.onrender.com`.
+   (detecta `render.yaml`) → rellena `DATABASE_URL` con la cadena de Neon y `FRONTEND_ORIGIN`
+   con `https://<tu-nombre>.pages.dev` → **Deploy**. El build siembra la base y arranca la API;
+   el primer deploy tarda unos minutos (sube ~61k filas a Neon). Copia la URL, p.ej.
+   `https://piscouting-api.onrender.com`.
 3. **Cloudflare Pages** → https://pages.cloudflare.com con GitHub → **Create → Connect to Git**
-   → este repo → **Root directory:** `fantasy-web` · **Build command:** `npm run build`
-   · **Output:** `dist` · variable `VITE_API_BASE` = la URL de Render → **Deploy**.
-4. Vuelve a Render → `FRONTEND_ORIGIN` = la URL de Cloudflare → guarda.
+   → este repo → **nombre del proyecto:** el que decidiste · **Root directory:** `fantasy-web`
+   · **Build command:** `npm run build` · **Output:** `dist` · variable `VITE_API_BASE` = la URL
+   de Render → **Deploy**.
+
+> Si el nombre que querías estaba ocupado, Cloudflare te dará otro subdominio: en ese caso sí
+> tendrás que volver a Render y corregir `FRONTEND_ORIGIN` con la URL real (si no, la web
+> cargará pero no podrá hablar con la API por CORS).
 
 Ya está: pasa la URL de Cloudflare a tus amigos, que se creen cuenta, y el que cree la liga
 comparte el **código de invitación** que sale arriba para que los demás entren con «Unirme».
@@ -118,5 +127,8 @@ ya está incluido para que las rutas internas funcionen al recargar.
 - **El mercado del fantasy no necesita cron**: `sync_market` abre y cierra las tandas de forma
   perezosa, al primer acceso a la liga. Aunque Render duerma el backend justo a la hora de cierre,
   las pujas se resuelven en cuanto alguien entra; solo se retrasa el aviso, no el resultado.
+- **Versión de Node en el build**: `fantasy-web/.node-version` fija Node 22.12. Sin él,
+  Cloudflare Pages usa Node 18 por defecto y el build falla: Vite 8 exige `^20.19 || >=22.12`.
+  Si despliegas en Vercel/Netlify, asegúrate de fijar allí la misma versión.
 - **Alternativa a Cloudflare**: Vercel o Netlify sirven igual (mismo `VITE_API_BASE` y `_redirects`).
 - **En local no cambia nada**: sin `DATABASE_URL` la app sigue usando SQLite como siempre.
