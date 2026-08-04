@@ -323,3 +323,10 @@ select { cursor: pointer; }
 .jr-row.me { background: var(--card-2); }
 .jr-row .pos { width: 20px; color: var(--muted); font-weight: 800; }
 .jr-row .who { flex: 1; font-weight: 700; }
+.jr-head { display: flex; align-items: center; gap: 10px; margin: 18px 2px 2px; }
+.jr-title { flex: 1; font-family: var(--display); font-size: 13px; font-weight: 800;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.jr-title b { color: #fff; font-size: 15px; letter-spacing: 0; }
+.jnav { width: 34px; height: 34px; border-radius: 11px; font-size: 19px; line-height: 1;
+  background: var(--card); border: 1px solid var(--line); color: var(--text); font-weight: 800; }
+.jnav:disabled { opacity: 0.3; cursor: not-allowed; }

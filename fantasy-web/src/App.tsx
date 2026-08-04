@@ -296,6 +296,9 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
     return () => clearInterval(t);
   }, [tab, data?.league?.market_open]);
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 2400); return () => clearTimeout(t); }, [msg]);
+  // ranking de jornada: arranca en la última puntuada y se puede navegar hacia atrás
+  const [jr, setJr] = useState<any>(null);
+  useEffect(() => { setJr(data?.jornada_ranking ?? null); }, [data?.jornada_ranking]);
 
   const closes = useCountdown(market?.closes_at ?? data?.league?.market_closes_at ?? null);
   const opens = useCountdown(data?.league?.market_opens_at ?? null);
@@ -450,25 +453,36 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
         </>}
 
         {tab === "liga" && <>
-          {(data.jornada_ranking?.rows ?? []).length > 0 && (
+          {(jr?.rows ?? []).length > 0 && (() => {
+            const js: number[] = jr.jornadas ?? [];
+            const i = js.indexOf(jr.jornada);
+            const ir = (to: number) => api.jornada(id, to).then(setJr).catch(() => {});
+            return (
             <>
-              <div className="sec">Jornada {data.jornada_ranking.jornada}<div className="rest" /></div>
-              <p className="muted" style={{ fontSize: 12, margin: "-4px 4px 12px" }}>
-                Quién más sumó este fin de semana. La general va aparte.
+              <div className="jr-head">
+                <button className="jnav" disabled={i <= 0} aria-label="Jornada anterior"
+                  onClick={() => ir(js[i - 1])}>‹</button>
+                <div className="jr-title">Jornada <b>{jr.jornada}</b></div>
+                <button className="jnav" disabled={i < 0 || i >= js.length - 1} aria-label="Jornada siguiente"
+                  onClick={() => ir(js[i + 1])}>›</button>
+              </div>
+              <p className="muted" style={{ fontSize: 12, margin: "0 4px 12px" }}>
+                {i === js.length - 1 ? "Quién más sumó este fin de semana. La general va aparte."
+                  : `Jornada ${jr.jornada} de ${js.length} puntuadas.`}
               </p>
               <div className="jr">
-                {data.jornada_ranking.rows.slice(0, 3).map((r: any, i: number) => (
+                {jr.rows.slice(0, 3).map((r: any, i2: number) => (
                   <div key={r.member_id} className={"jr-top p" + r.pos
                     + (r.member_id === data.my_member_id ? " me" : "")}>
-                    <div className="medal">{["🥇", "🥈", "🥉"][i]}</div>
+                    <div className="medal">{["🥇", "🥈", "🥉"][i2]}</div>
                     <div className="jr-name">{r.manager}</div>
                     <div className="jr-pts tnum">{r.points}<span>pts</span></div>
                   </div>
                 ))}
               </div>
-              {data.jornada_ranking.rows.length > 3 && (
+              {jr.rows.length > 3 && (
                 <div className="jr-rest">
-                  {data.jornada_ranking.rows.slice(3).map((r: any) => (
+                  {jr.rows.slice(3).map((r: any) => (
                     <div key={r.member_id}
                       className={"jr-row" + (r.member_id === data.my_member_id ? " me" : "")}>
                       <span className="pos">{r.pos}</span>
@@ -479,7 +493,8 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
                 </div>
               )}
             </>
-          )}
+            );
+          })()}
           <div className="sec">Clasificación general<div className="rest" /></div>
           <p className="muted" style={{ fontSize: 12, margin: "-4px 4px 12px" }}>
             Toca un mánager para ver su plantilla y sus cláusulas 💥

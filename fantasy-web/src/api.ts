@@ -43,6 +43,7 @@ export const api = {
   join: (join_code: string, manager_name: string) => post("/fantasy/leagues/join", { join_code, manager_name }),
 
   league: (id: number) => get(`/fantasy/leagues/${id}`),
+  jornada: (id: number, j: number) => get(`/fantasy/leagues/${id}/jornada/${j}`),
   market: (id: number) => get(`/fantasy/leagues/${id}/market`),
   bid: (id: number, listing_id: number, amount: number) => post(`/fantasy/leagues/${id}/bid`, { listing_id, amount }),
   cancelBid: (id: number, listing_id: number) => post(`/fantasy/leagues/${id}/bid/cancel`, { listing_id }),
