@@ -87,12 +87,54 @@ def conference_games(session: Session, comp: str, grupo: Optional[str], season: 
         won = my is not None and opp is not None and my > opp
         d = out.setdefault(pid, {
             "player_id": pid, "name": pname, "feb_code": feb_code,
-            "team_id": tid, "team": tname, "games": [],
+            "team_id": tid, "team": tname, "last_j": jornada_num, "games": [],
         })
+        # Con traspasos y jugadores vinculados (159 en la 25/26) el equipo bueno es el del
+        # partido más reciente, no el que la base devuelva primero.
+        if jornada_num >= d["last_j"]:
+            d["last_j"] = jornada_num
+            d["team_id"] = tid
+            d["team"] = tname
         d["games"].append({"j": jornada_num, "val": val, "pm": pm, "won": won})
     for d in out.values():
         d["games"].sort(key=lambda g: g["j"])
     return out
+
+
+def departed_players(session: Session, comp: str, grupo: Optional[str], season: str) -> set[int]:
+    """Jugadores que se han marchado de la conferencia a mitad de temporada.
+
+    Un fichaje en enero deja al mánager que lo tenía con un jugador que ya no puntúa, así
+    que hay que poder avisarle. Se compara por FECHA y no por jornada, porque las jornadas
+    de dos competiciones no caen el mismo fin de semana: si su último partido fuera de la
+    conferencia es posterior al último dentro, es que se ha ido (y no que esté lesionado).
+    """
+    rows = session.exec(sa_text(f"""
+        WITH aqui AS (
+            SELECT s.player_id, MAX(m.match_date) AS last_date
+            FROM player_match_stats s
+            JOIN matches m ON m.id = s.match_id
+            JOIN teams t ON t.id = s.team_id
+            WHERE t.season = :season AND t.competition = :comp
+                  {"AND t.grupo = :grupo" if grupo else ""}
+                  AND m.match_date IS NOT NULL
+            GROUP BY s.player_id
+        ),
+        fuera AS (
+            SELECT s.player_id, MAX(m.match_date) AS last_date
+            FROM player_match_stats s
+            JOIN matches m ON m.id = s.match_id
+            JOIN teams t ON t.id = s.team_id
+            WHERE t.season = :season
+                  AND NOT (t.competition = :comp {"AND t.grupo = :grupo" if grupo else ""})
+                  AND m.match_date IS NOT NULL
+            GROUP BY s.player_id
+        )
+        SELECT a.player_id FROM aqui a
+        JOIN fuera f ON f.player_id = a.player_id
+        WHERE f.last_date > a.last_date
+    """), params={"season": season, "comp": comp, **({"grupo": grupo} if grupo else {})}).all()
+    return {r[0] for r in rows}
 
 
 def max_jornada(session: Session, comp: str, grupo: Optional[str], season: str) -> int:
@@ -207,6 +249,7 @@ def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
         tg = len([g for g in d["games"] if g["j"] <= league.current_jornada])
         team_games[d["team_id"]] = max(team_games.get(d["team_id"], 0), tg)
     prev = season_prices(session, previous_season(league.season))
+    fuera = departed_players(session, league.competition, league.grupo, league.season)
     rows = []
     for d in conf.values():
         played = [g for g in d["games"] if g["j"] <= league.current_jornada]
@@ -223,6 +266,9 @@ def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
             "player_id": d["player_id"], "name": d["name"], "feb_code": d["feb_code"],
             "team_id": d["team_id"], "team": d["team"], "games": n,
             "price": price, "price_prev": prev_price,
+            # se ha ido de la conferencia: ya no puntúa aunque siga en la plantilla
+            "departed": d["player_id"] in fuera,
+            "last_j": d.get("last_j", 0),
             "val_avg": round(sum(g["val"] for g in played) / n, 1),
             "pm_avg": round(sum(g["pm"] for g in played) / n, 1),
             "form": round(sum(g["val"] for g in played[-RECENT_N:]) / len(played[-RECENT_N:]), 1),
@@ -825,21 +871,22 @@ def standings(session: Session, league: FantasyLeague) -> list[dict]:
 
 
 def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> list[dict]:
-    prices = price_map(session, league)
-    conf = conference_games(session, league.competition, league.grupo, league.season)
+    # all_priced ya trae nombre, equipo y stats, así que no hace falta volver a recorrer
+    # los boxscores con conference_games ni pedir el price_map por separado.
     info = {r["player_id"]: r for r in all_priced(session, league)}
     out = []
     now = utcnow()
     for p in picks_of(session, member.id):
-        d = conf.get(p.player_id, {})
-        extra = info.get(p.player_id, {})
-        cur = prices.get(p.player_id, p.buy_price)
+        d = info.get(p.player_id, {})
+        cur = d.get("price", p.buy_price)
         locked = bool(p.clause_locked_until and now < p.clause_locked_until)
         out.append({
             "player_id": p.player_id, "name": d.get("name", "?"), "feb_code": d.get("feb_code"),
             "team": d.get("team"), "buy_price": p.buy_price, "price": cur,
             "delta": round(cur - p.buy_price, 1), "starter": p.starter,
-            "val_avg": extra.get("val_avg", 0), "form": extra.get("form", 0),
+            "val_avg": d.get("val_avg", 0), "form": d.get("form", 0),
+            # fichó por otro equipo: sigue en tu plantilla pero ya no puntúa
+            "departed": bool(d.get("departed")),
             "clause": p.clause, "clause_locked": locked,
             "clause_lock_mins": int((p.clause_locked_until - now).total_seconds() // 60) if locked else 0,
         })
