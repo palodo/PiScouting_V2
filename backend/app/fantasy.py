@@ -64,8 +64,12 @@ def _pct(m, a):
 # ============================ datos de la conferencia ============================
 def conference_games(session: Session, comp: str, grupo: Optional[str], season: str) -> dict:
     """player_id -> {name, feb_code, team_id, team, games:[{j,val,pm,won}]} ordenado por jornada."""
+    # Se piden columnas sueltas y no entidades: con objetos del ORM, 3ª FEB (unas 40.000
+    # líneas de boxscore) llegaba a 247 MB de pico, y el plan gratuito de Render tiene 512.
     q = (
-        select(PlayerMatchStat, Match, Player, Team)
+        select(Player.id, Player.name, Player.feb_code, Team.id, Team.name,
+               Match.jornada_num, Match.home_score, Match.away_score,
+               PlayerMatchStat.is_home, PlayerMatchStat.val, PlayerMatchStat.plus_minus)
         .join(Match, Match.id == PlayerMatchStat.match_id)
         .join(Player, Player.id == PlayerMatchStat.player_id)
         .join(Team, Team.id == PlayerMatchStat.team_id)
@@ -74,17 +78,18 @@ def conference_games(session: Session, comp: str, grupo: Optional[str], season: 
     if grupo:
         q = q.where(Team.grupo == grupo)
     out: dict[int, dict] = {}
-    for st, m, pl, tm in session.exec(q).all():
-        if m.jornada_num is None:
+    for (pid, pname, feb_code, tid, tname, jornada_num,
+         home_score, away_score, is_home, val, pm) in session.exec(q):
+        if jornada_num is None:
             continue
-        my = m.home_score if st.is_home else m.away_score
-        opp = m.away_score if st.is_home else m.home_score
+        my = home_score if is_home else away_score
+        opp = away_score if is_home else home_score
         won = my is not None and opp is not None and my > opp
-        d = out.setdefault(pl.id, {
-            "player_id": pl.id, "name": pl.name, "feb_code": pl.feb_code,
-            "team_id": tm.id, "team": tm.name, "games": [],
+        d = out.setdefault(pid, {
+            "player_id": pid, "name": pname, "feb_code": feb_code,
+            "team_id": tid, "team": tname, "games": [],
         })
-        d["games"].append({"j": m.jornada_num, "val": st.val, "pm": st.plus_minus, "won": won})
+        d["games"].append({"j": jornada_num, "val": val, "pm": pm, "won": won})
     for d in out.values():
         d["games"].sort(key=lambda g: g["j"])
     return out
