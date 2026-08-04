@@ -1,0 +1,94 @@
+# Publica PiFantasy (fantasy-web) en GitHub Pages.
+#
+# No necesita cuentas ni tokens externos: Pages se autentica con el propio GITHUB_TOKEN.
+# La URL queda en https://<usuario>.github.io/<repo>/, por eso se construye con VITE_BASE.
+#
+# La URL del backend (Render) se toma, por este orden:
+#   1. el input api_base, si se lanza a mano
+#   2. la variable de repositorio API_BASE (Settings → Secrets and variables → Actions → Variables)
+name: Publicar PiFantasy
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: "URL del backend en Render (sin /api y sin barra final)"
+        required: false
+  push:
+    branches: [main]
+    paths:
+      - "fantasy-web/**"
+      - ".github/workflows/deploy-fantasy.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Una publicación a la vez; no cancela la que esté en curso.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolver la URL del backend
+        id: api
+        env:
+          FROM_INPUT: ${{ inputs.api_base }}
+          FROM_VAR: ${{ vars.API_BASE }}
+        run: |
+          API="${FROM_INPUT:-$FROM_VAR}"
+          if [ -z "$API" ]; then
+            echo "::error::Falta la URL del backend. Lanza el workflow a mano rellenando 'api_base', o crea la variable de repositorio API_BASE."
+            exit 1
+          fi
+          API="${API%/}"          # quita la barra final si la lleva
+          API="${API%/api}"       # y un /api de más, que es el error típico
+          echo "value=$API" >> "$GITHUB_OUTPUT"
+          echo "Backend: $API"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: fantasy-web/.node-version
+          cache: npm
+          cache-dependency-path: fantasy-web/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: fantasy-web
+        run: npm ci
+
+      - name: Construir
+        working-directory: fantasy-web
+        env:
+          # GitHub Pages sirve el sitio bajo /<repo>/
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_API_BASE: ${{ steps.api.outputs.value }}
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: fantasy-web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Recordatorio de CORS
+        run: |
+          echo "Publicado en ${{ steps.deployment.outputs.page_url }}"
+          echo "Si la web carga pero no deja entrar, pon esa URL (sin barra final) en FRONTEND_ORIGIN, en Render."
