@@ -830,10 +830,36 @@ def set_lineup(session: Session, league: FantasyLeague, member: FantasyMember,
 
 
 # ============================ jornada / clasificación ============================
+def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> list[str]:
+    """Partidos de esa jornada que aún no se han jugado (aplazados o por disputar).
+
+    Mientras quede alguno no se puede puntuar: los jugadores de esos equipos sumarían cero
+    y quien los tuviera alineados se comería un cero que no le corresponde.
+    """
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    faltan = []
+    for m in session.exec(q).all():
+        if m.home_score is None or m.away_score is None:
+            local = session.get(Team, m.home_team_id) if m.home_team_id else None
+            visit = session.get(Team, m.away_team_id) if m.away_team_id else None
+            faltan.append(f"{local.name if local else '?'} - {visit.name if visit else '?'}")
+    return faltan
+
+
 def advance(session: Session, league: FantasyLeague) -> dict:
     if league.current_jornada >= league.max_jornada:
         return {"ok": False, "done": True, "message": "La temporada ya está completa"}
     nxt = league.current_jornada + 1
+    faltan = pending_matches(session, league, nxt)
+    if faltan:
+        return {"ok": False, "pending": faltan, "jornada": nxt,
+                "message": (f"La jornada {nxt} no está completa: falta por jugarse "
+                            + (f"{faltan[0]}" if len(faltan) == 1 else f"{len(faltan)} partidos")
+                            + ". Se puntuará cuando se dispute.")}
     pts = jornada_points(session, league, nxt)
     members = session.exec(select(FantasyMember).where(FantasyMember.league_id == league.id)).all()
     breakdown = []

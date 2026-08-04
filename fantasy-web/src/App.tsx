@@ -326,7 +326,12 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
           <h1>{lg.name}</h1>
           {data.is_owner && (
             <button className="btn sm" disabled={busy || done}
-              onClick={() => act(() => api.advance(id), "¡Jornada puntuada!")}>
+              onClick={() => act(async () => {
+                // puede responder ok:false si la jornada tiene partidos sin jugar:
+                // hay que enseñar su mensaje, no cantar victoria siempre
+                const r: any = await api.advance(id);
+                setMsg(r?.ok === false ? r.message : `¡Jornada ${r?.jornada ?? ""} puntuada!`);
+              })}>
               {done ? "Fin" : "▶ Jornada"}
             </button>
           )}
