@@ -32,6 +32,9 @@ concurrency:
 
 jobs:
   build:
+    # En los push solo tiene sentido si la URL del backend está guardada como variable;
+    # si no, se salta limpiamente en vez de fallar.
+    if: github.event_name == 'workflow_dispatch' || vars.API_BASE != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
