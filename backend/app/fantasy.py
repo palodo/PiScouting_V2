@@ -36,9 +36,14 @@ except Exception:  # pragma: no cover - si falta tzdata, se usa UTC
 
 # --- parámetros del modelo de precio ---
 PRICE_K = 1.1
-PRICE_MIN = 3.0
+PRICE_MIN = 1.0
 PRICE_MAX = 25.0
 RECENT_N = 4  # partidos para la "forma reciente"
+# Partidos de la temporada en curso a partir de los cuales el precio deja de mirar a la
+# anterior. Antes de eso se mezclan: en la jornada 1 el precio es casi todo del año pasado,
+# porque un solo partido no dice nada. Sin esto, al empezar la temporada todos los
+# jugadores valdrían PRICE_MIN y el primer mercado no tendría ningún sentido.
+BLEND_GAMES = 6
 WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
 
@@ -106,6 +111,61 @@ def _price_from_games(games: list[dict], up_to_j: int, team_games: int) -> float
     return round(_clamp(PRICE_K * raw * (0.5 + 0.5 * reliab), PRICE_MIN, PRICE_MAX), 1)
 
 
+def previous_season(season: str) -> str:
+    """'2026' -> '2025'. Cadena vacía si la temporada no es un año."""
+    try:
+        return str(int(season) - 1)
+    except (TypeError, ValueError):
+        return ""
+
+
+# Los precios de una temporada cerrada no cambian nunca, así que se calculan una vez por
+# proceso. Sin esto habría que recorrer todos sus boxscores en cada consulta del mercado.
+_SEASON_PRICES: dict[str, dict[int, float]] = {}
+
+
+def season_prices(session: Session, season: str) -> dict[int, float]:
+    """Precio de cada jugador con una temporada COMPLETA, sea cual sea su competición.
+
+    No se filtra por conferencia a propósito: un jugador puede haber ascendido o bajado de
+    categoría, y su valoración del año pasado sigue siendo la mejor pista que tenemos.
+    """
+    if not season:
+        return {}
+    if season in _SEASON_PRICES:
+        return _SEASON_PRICES[season]
+
+    q = (
+        select(PlayerMatchStat, Match, Team)
+        .join(Match, Match.id == PlayerMatchStat.match_id)
+        .join(Team, Team.id == PlayerMatchStat.team_id)
+        .where(Team.season == season)
+    )
+    games: dict[int, list[dict]] = {}
+    player_team: dict[int, int] = {}
+    team_jornadas: dict[int, set] = {}
+    for st, m, tm in session.exec(q).all():
+        if m.jornada_num is None:
+            continue
+        my = m.home_score if st.is_home else m.away_score
+        opp = m.away_score if st.is_home else m.home_score
+        games.setdefault(st.player_id, []).append({
+            "j": m.jornada_num, "val": st.val, "pm": st.plus_minus,
+            "won": my is not None and opp is not None and my > opp,
+        })
+        player_team[st.player_id] = tm.id
+        team_jornadas.setdefault(tm.id, set()).add(m.jornada_num)
+
+    out: dict[int, float] = {}
+    for pid, gs in games.items():
+        gs.sort(key=lambda g: g["j"])
+        tg = len(team_jornadas.get(player_team.get(pid, -1), ())) or len(gs)
+        out[pid] = _price_from_games(gs, gs[-1]["j"], tg)
+
+    _SEASON_PRICES[season] = out
+    return out
+
+
 def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
     """Todos los jugadores de la conferencia con precio actual y stats."""
     conf = conference_games(session, league.competition, league.grupo, league.season)
@@ -113,16 +173,23 @@ def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
     for d in conf.values():
         tg = len([g for g in d["games"] if g["j"] <= league.current_jornada])
         team_games[d["team_id"]] = max(team_games.get(d["team_id"], 0), tg)
+    prev = season_prices(session, previous_season(league.season))
     rows = []
     for d in conf.values():
         played = [g for g in d["games"] if g["j"] <= league.current_jornada]
         if not played:
             continue
         n = len(played)
+        price = _price_from_games(d["games"], league.current_jornada, team_games.get(d["team_id"], 1))
+        prev_price = prev.get(d["player_id"])
+        if prev_price is not None and n < BLEND_GAMES:
+            # Arranque de temporada: pesa lo del año pasado hasta acumular partidos nuevos.
+            w = n / BLEND_GAMES
+            price = round(_clamp(w * price + (1 - w) * prev_price, PRICE_MIN, PRICE_MAX), 1)
         rows.append({
             "player_id": d["player_id"], "name": d["name"], "feb_code": d["feb_code"],
             "team_id": d["team_id"], "team": d["team"], "games": n,
-            "price": _price_from_games(d["games"], league.current_jornada, team_games.get(d["team_id"], 1)),
+            "price": price, "price_prev": prev_price,
             "val_avg": round(sum(g["val"] for g in played) / n, 1),
             "pm_avg": round(sum(g["pm"] for g in played) / n, 1),
             "form": round(sum(g["val"] for g in played[-RECENT_N:]) / len(played[-RECENT_N:]), 1),
