@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import random
 import string
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy import text as sa_text  # alias: `text` ya se usa como nombre de parámetro
 from sqlmodel import Session, select
 
 from .config import FANTASY_COMPETITIONS
@@ -135,39 +137,65 @@ def season_prices(session: Session, season: str) -> dict[int, float]:
     if season in _SEASON_PRICES:
         return _SEASON_PRICES[season]
 
-    q = (
-        select(PlayerMatchStat, Match, Team)
-        .join(Match, Match.id == PlayerMatchStat.match_id)
-        .join(Team, Team.id == PlayerMatchStat.team_id)
-        .where(Team.season == season)
-    )
-    games: dict[int, list[dict]] = {}
-    player_team: dict[int, int] = {}
-    team_jornadas: dict[int, set] = {}
-    for st, m, tm in session.exec(q).all():
-        if m.jornada_num is None:
-            continue
-        my = m.home_score if st.is_home else m.away_score
-        opp = m.away_score if st.is_home else m.home_score
-        games.setdefault(st.player_id, []).append({
-            "j": m.jornada_num, "val": st.val, "pm": st.plus_minus,
-            "won": my is not None and opp is not None and my > opp,
-        })
-        player_team[st.player_id] = tm.id
-        team_jornadas.setdefault(tm.id, set()).add(m.jornada_num)
+    # Se agrega en la base y no en Python: traer los ~55.000 boxscores de una temporada
+    # para promediarlos aquí costaba segundos contra Postgres. Así vuelven ~3.000 filas.
+    rows = session.exec(sa_text("""
+        WITH g AS (
+            SELECT s.player_id, s.team_id, s.val, s.plus_minus, m.jornada_num,
+                   ROW_NUMBER() OVER (PARTITION BY s.player_id
+                                      ORDER BY m.jornada_num DESC) AS rn
+            FROM player_match_stats s
+            JOIN matches m ON m.id = s.match_id
+            JOIN teams t ON t.id = s.team_id
+            WHERE t.season = :season AND m.jornada_num IS NOT NULL
+        ),
+        tg AS (
+            SELECT s.team_id, COUNT(DISTINCT m.jornada_num) AS n
+            FROM player_match_stats s
+            JOIN matches m ON m.id = s.match_id
+            JOIN teams t ON t.id = s.team_id
+            WHERE t.season = :season AND m.jornada_num IS NOT NULL
+            GROUP BY s.team_id
+        )
+        -- MAX(tg.n): hay jugadores vinculados que juegan en dos equipos la misma temporada
+        -- (incluso en la misma jornada). Se toma el equipo con más jornadas para que la
+        -- fiabilidad no dependa del orden en que la base devuelva las filas.
+        SELECT g.player_id,
+               COUNT(*) AS n,
+               AVG(g.val * 1.0) AS val_cum,
+               AVG(g.plus_minus * 1.0) AS pm_cum,
+               AVG(CASE WHEN g.rn <= :recent THEN g.val * 1.0 END) AS val_recent,
+               MAX(tg.n) AS team_games
+        FROM g JOIN tg ON tg.team_id = g.team_id
+        GROUP BY g.player_id
+    """), params={"season": season, "recent": RECENT_N}).all()
 
     out: dict[int, float] = {}
-    for pid, gs in games.items():
-        gs.sort(key=lambda g: g["j"])
-        tg = len(team_jornadas.get(player_team.get(pid, -1), ())) or len(gs)
-        out[pid] = _price_from_games(gs, gs[-1]["j"], tg)
+    for pid, n, val_cum, pm_cum, val_recent, team_games in rows:
+        reliab = min(1.0, n / max(1.0, 0.5 * (team_games or n)))
+        raw = 0.6 * float(val_cum) + 0.4 * float(val_recent) + 0.3 * float(pm_cum)
+        out[pid] = round(_clamp(PRICE_K * raw * (0.5 + 0.5 * reliab), PRICE_MIN, PRICE_MAX), 1)
 
     _SEASON_PRICES[season] = out
     return out
 
 
+# Los precios son iguales para todas las ligas de la misma conferencia y jornada, y solo
+# cambian al avanzar jornada o al ingerir partidos nuevos. Calcularlos exige recorrer los
+# boxscores de la competición entera (más de un segundo en 3ª FEB), así que se reutilizan
+# durante unos minutos en vez de repetir ese trabajo en cada consulta del mercado.
+_PRICED_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+PRICED_TTL = 300.0  # segundos
+
+
 def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
     """Todos los jugadores de la conferencia con precio actual y stats."""
+    key = (league.season, league.competition, league.grupo, league.current_jornada)
+    hit = _PRICED_CACHE.get(key)
+    if hit is not None and time.monotonic() - hit[0] < PRICED_TTL:
+        # copia: quien llama trabaja con estos dicts y no debe poder tocar la caché
+        return [dict(r) for r in hit[1]]
+
     conf = conference_games(session, league.competition, league.grupo, league.season)
     team_games: dict[int, int] = {}
     for d in conf.values():
@@ -195,7 +223,8 @@ def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
             "form": round(sum(g["val"] for g in played[-RECENT_N:]) / len(played[-RECENT_N:]), 1),
         })
     rows.sort(key=lambda r: r["price"], reverse=True)
-    return rows
+    _PRICED_CACHE[key] = (time.monotonic(), rows)
+    return [dict(r) for r in rows]
 
 
 def price_map(session: Session, league: FantasyLeague) -> dict[int, float]:
