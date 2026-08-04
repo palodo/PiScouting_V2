@@ -436,7 +436,16 @@ def fantasy_league_detail(league_id: int, user: User = Depends(auth.get_current_
         "my_committed": fantasy_mod.committed_amount(session, member.id) if member else 0.0,
         "my_squad": fantasy_mod.my_squad(session, lg, member) if member else [],
         "feed": fantasy_mod.feed(session, league_id, 30),
+        "jornada_ranking": fantasy_mod.jornada_ranking(session, lg),
     }
+
+
+@app.get("/api/fantasy/leagues/{league_id}/jornada/{jornada}")
+def fantasy_jornada_ranking(league_id: int, jornada: int,
+                            user: User = Depends(auth.get_current_user),
+                            session: Session = Depends(get_session)):
+    """Clasificación de una jornada concreta, para poder mirar atrás."""
+    return fantasy_mod.jornada_ranking(session, _get_league(session, league_id), jornada)
 
 
 @app.get("/api/fantasy/leagues/{league_id}/market")

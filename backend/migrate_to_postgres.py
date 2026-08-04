@@ -25,7 +25,7 @@ from app.config import DB_PATH
 # Orden respetando las claves foráneas
 TABLES = ["teams", "players", "matches", "player_match_stats", "shots",
           "users", "fantasy_leagues", "fantasy_members", "fantasy_picks",
-          "fantasy_listings", "fantasy_bids", "fantasy_events"]
+          "fantasy_listings", "fantasy_bids", "fantasy_events", "fantasy_jornada_scores"]
 
 
 def _normalize(url: str) -> str:

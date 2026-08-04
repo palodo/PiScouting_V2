@@ -228,6 +228,22 @@ class FantasyEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
+class FantasyJornadaScore(SQLModel, table=True):
+    """Lo que sumó cada mánager en una jornada concreta.
+
+    Se guarda al puntuarla porque en el miembro solo queda el acumulado: sin esto no se
+    puede mirar atrás ni saber quién ganó una jornada.
+    """
+    __tablename__ = "fantasy_jornada_scores"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    member_id: int = Field(foreign_key="fantasy_members.id", index=True)
+    jornada: int = Field(index=True)
+    points: float = 0.0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Shot(SQLModel, table=True):
     """Tiro individual con coordenadas de media pista (para mapas estáticos y animados)."""
     __tablename__ = "shots"

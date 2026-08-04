@@ -28,6 +28,7 @@ from .config import FANTASY_COMPETITIONS
 from .models import (
     Team, Player, Match, PlayerMatchStat,
     FantasyLeague, FantasyMember, FantasyPick, FantasyListing, FantasyBid, FantasyEvent,
+    FantasyJornadaScore,
 )
 
 try:  # hora peninsular para el horario del mercado
@@ -840,6 +841,9 @@ def advance(session: Session, league: FantasyLeague) -> dict:
         gained = round(sum(pts.get(p.player_id, 0.0) for p in picks_of(session, m.id) if p.starter), 1)
         m.total_points = round(m.total_points + gained, 1)
         session.add(m)
+        # se guarda el desglose: en el miembro solo queda el acumulado
+        session.add(FantasyJornadaScore(league_id=league.id, member_id=m.id,
+                                        jornada=nxt, points=gained))
         breakdown.append({"member_id": m.id, "manager": m.manager_name, "gained": gained})
     league.current_jornada = nxt
     session.add(league)
@@ -849,6 +853,30 @@ def advance(session: Session, league: FantasyLeague) -> dict:
     session.commit()
     return {"ok": True, "jornada": nxt, "breakdown": breakdown,
             "done": league.current_jornada >= league.max_jornada}
+
+
+def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[int] = None) -> dict:
+    """Clasificación de UNA jornada: quién sumó más ese fin de semana.
+
+    Es lo que convierte el acumulado en una carrera semanal: puedes ir décimo en la general
+    y ganar la jornada. Sin `jornada` devuelve la última puntuada.
+    """
+    j = jornada if jornada is not None else league.current_jornada
+    if j <= 0:
+        return {"jornada": 0, "rows": [], "jornadas": []}
+    rows = session.exec(
+        select(FantasyJornadaScore, FantasyMember)
+        .join(FantasyMember, FantasyMember.id == FantasyJornadaScore.member_id)
+        .where(FantasyJornadaScore.league_id == league.id, FantasyJornadaScore.jornada == j)
+    ).all()
+    out = [{"member_id": m.id, "manager": m.manager_name, "points": sc.points} for sc, m in rows]
+    out.sort(key=lambda r: -r["points"])
+    for i, r in enumerate(out):
+        # mismos puntos, mismo puesto
+        r["pos"] = out[i - 1]["pos"] if i and r["points"] == out[i - 1]["points"] else i + 1
+    js = sorted({s_.jornada for s_ in session.exec(
+        select(FantasyJornadaScore).where(FantasyJornadaScore.league_id == league.id)).all()})
+    return {"jornada": j, "rows": out, "jornadas": js}
 
 
 def standings(session: Session, league: FantasyLeague) -> list[dict]:

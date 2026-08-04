@@ -445,7 +445,37 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
         </>}
 
         {tab === "liga" && <>
-          <div className="sec">Clasificación<div className="rest" /></div>
+          {(data.jornada_ranking?.rows ?? []).length > 0 && (
+            <>
+              <div className="sec">Jornada {data.jornada_ranking.jornada}<div className="rest" /></div>
+              <p className="muted" style={{ fontSize: 12, margin: "-4px 4px 12px" }}>
+                Quién más sumó este fin de semana. La general va aparte.
+              </p>
+              <div className="jr">
+                {data.jornada_ranking.rows.slice(0, 3).map((r: any, i: number) => (
+                  <div key={r.member_id} className={"jr-top p" + r.pos
+                    + (r.member_id === data.my_member_id ? " me" : "")}>
+                    <div className="medal">{["🥇", "🥈", "🥉"][i]}</div>
+                    <div className="jr-name">{r.manager}</div>
+                    <div className="jr-pts tnum">{r.points}<span>pts</span></div>
+                  </div>
+                ))}
+              </div>
+              {data.jornada_ranking.rows.length > 3 && (
+                <div className="jr-rest">
+                  {data.jornada_ranking.rows.slice(3).map((r: any) => (
+                    <div key={r.member_id}
+                      className={"jr-row" + (r.member_id === data.my_member_id ? " me" : "")}>
+                      <span className="pos">{r.pos}</span>
+                      <span className="who">{r.manager}</span>
+                      <span className="tnum">{r.points}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          <div className="sec">Clasificación general<div className="rest" /></div>
           <p className="muted" style={{ fontSize: 12, margin: "-4px 4px 12px" }}>
             Toca un mánager para ver su plantilla y sus cláusulas 💥
           </p>
