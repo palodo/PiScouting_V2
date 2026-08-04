@@ -1,0 +1,30 @@
+# Sondeo manual de la web de la FEB: dice qué temporadas hay publicadas y si los
+# códigos de competición de config.py siguen valiendo. Solo lectura, sin secretos.
+name: Sondear FEB
+
+on:
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: 'Temporadas a sondear, separadas por espacio (p.ej. "2025 2026")'
+        required: false
+        default: "2025 2026"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Solo lo que necesita el scraper del calendario: nada de pandas ni reportlab.
+      - name: Instalar dependencias
+        run: pip install requests beautifulsoup4 lxml
+
+      - name: Sondear
+        working-directory: backend
+        run: python probe_feb.py ${{ inputs.seasons }}
