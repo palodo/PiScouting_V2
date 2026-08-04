@@ -350,14 +350,32 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
             {POS.map((p, i) => {
               const pl = starters[i];
               return (
-                <div key={i} className={"tok" + (pl ? "" : " empty")} style={{ left: p.l, top: p.t }}>
+                <div key={i} className={"tok" + (pl ? "" : " empty") + (pl?.departed ? " gone" : "")}
+                  style={{ left: p.l, top: p.t }}
+                  title={pl?.departed ? "Fichó por otro equipo: no puntúa" : undefined}>
                   <img src={pl ? photo(pl.feb_code) : ""} onError={hideImg} alt="" />
                   <div className="n">{pl ? shortName(pl.name) : "Libre"}</div>
-                  {pl && <div className="p">{pl.price} M€</div>}
+                  {pl && <div className="p">{pl.departed ? "no puntúa" : `${pl.price} M€`}</div>}
                 </div>
               );
             })}
           </div>
+          {squad.some((p: any) => p.departed) && (() => {
+            const idos = squad.filter((p: any) => p.departed);
+            const alineados = idos.filter((p: any) => p.starter);
+            return (
+              <div className="alert">
+                <b>{idos.length === 1 ? "Un jugador de tu plantilla ha fichado por otro equipo"
+                  : `${idos.length} jugadores de tu plantilla han fichado por otro equipo`}</b>
+                <span>
+                  {alineados.length > 0
+                    ? `Tienes ${alineados.length === 1 ? "a uno" : `a ${alineados.length}`} en el once y `
+                      + `${alineados.length === 1 ? "sumará" : "sumarán"} 0 puntos esta jornada. Cámbia${alineados.length === 1 ? "lo" : "los"} o vénde${alineados.length === 1 ? "lo" : "los"}.`
+                    : "Ocupan sitio en la plantilla pero ya no puntúan. Véndelos para hacer hueco."}
+                </span>
+              </div>
+            );
+          })()}
           <div className="sec">Titulares · {starters.length}/{lg.lineup_size}<div className="rest" /></div>
           {starters.map((p) => <SquadCard key={p.player_id} p={p} busy={busy}
             onOpen={() => setPlayerFor(p.player_id)}
@@ -518,22 +536,27 @@ function League({ id, onBack }: { id: number; onBack: () => void }) {
 function SquadCard({ p, busy, onStar, onSell, onOpen }: any) {
   const stop = (e: any, fn: () => void) => { e.stopPropagation(); fn(); };
   return (
-    <div className={"pcard tapable" + (p.starter ? " starter" : "")} onClick={onOpen}>
+    <div className={"pcard tapable" + (p.starter ? " starter" : "") + (p.departed ? " gone" : "")}
+      onClick={onOpen}>
       <img className="ph" src={photo(p.feb_code)} onError={hideImg} alt="" />
       <div className="mid">
         <div className="nm">{shortName(p.name)}</div>
         <div className="tm">{p.team}</div>
-        <div className="kv">
-          <span>VAL <b>{p.val_avg}</b></span>
-          <span className={p.delta >= 0 ? "up" : "down"}>{p.delta >= 0 ? "▲" : "▼"} {Math.abs(p.delta)}</span>
-          <span className="clause-mini">💥 {p.clause}{p.clause_locked ? " 🔒" : ""}</span>
-        </div>
+        {p.departed
+          ? <div className="gone-tag">Fichó por otro equipo · ya no puntúa</div>
+          : <div className="kv">
+              <span>VAL <b>{p.val_avg}</b></span>
+              <span className={p.delta >= 0 ? "up" : "down"}>{p.delta >= 0 ? "▲" : "▼"} {Math.abs(p.delta)}</span>
+              <span className="clause-mini">💥 {p.clause}{p.clause_locked ? " 🔒" : ""}</span>
+            </div>}
       </div>
       <div className="right">
         <div className="price tnum">{p.price}<span className="u">M€</span></div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button className={"star" + (p.starter ? " on" : "")} disabled={busy}
-            onClick={(e) => stop(e, onStar)} title={p.starter ? "Quitar de titulares" : "Poner de titular"}>⭐</button>
+          <button className={"star" + (p.starter ? " on" : "")} disabled={busy || p.departed}
+            onClick={(e) => stop(e, onStar)}
+            title={p.departed ? "Ya no juega en tu liga: no puede ser titular"
+              : p.starter ? "Quitar de titulares" : "Poner de titular"}>⭐</button>
           <button className="btn sm danger" disabled={busy} onClick={(e) => stop(e, onSell)}>Vender</button>
         </div>
       </div>
