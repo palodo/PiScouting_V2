@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { IconBolt, IconCheck, IconClose, IconGavel, IconLock, IconMinus, IconPlus } from "../icons";
-import { PlayerRow, lockLabel } from "../parts";
+import { PfBox, PlayerRow, lockLabel } from "../parts";
 import { Loading, Photo, Section, Sheet, SheetClose, prettyName, prettyTeam } from "../ui";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
@@ -131,7 +131,7 @@ export function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget
       <div className="sheet__actions">
         {rival && (
           <button className="btn btn--clause btn--block" disabled={busy || d.clause_locked || d.clause > freeBudget}
-            onClick={() => onClause(d.player_id)}>
+            onClick={() => onClause(d)}>
             <IconBolt size={17} strokeWidth={2.2} />
             {d.clause_locked ? "Blindado ahora mismo"
               : d.clause > freeBudget ? `Te faltan ${r1(d.clause - freeBudget)} M€`
@@ -250,8 +250,9 @@ export function BidSheet({ listing, budget, busy, onClose, onBid, onCancel }: {
 }
 
 /* -------------------------------------------------------- plantilla rival */
-export function ManagerSheet({ data, onClose, onPlayer }: {
-  data: any; onClose: () => void; onPlayer: (id: number) => void;
+export function ManagerSheet({ data, free, onClose, onPlayer, onClause }: {
+  data: any; free: number; onClose: () => void;
+  onPlayer: (id: number) => void; onClause: (p: any) => void;
 }) {
   return (
     <Sheet onClose={onClose} title={data.manager}>
@@ -267,17 +268,104 @@ export function ManagerSheet({ data, onClose, onPlayer }: {
         <SheetClose onClose={onClose} />
       </div>
       <p className="hint" style={{ margin: "12px 2px" }}>
-        Toca un jugador para ver su ficha y, si te interesa, pagar su cláusula.
+        Paga la cláusula y te lo llevas al momento. Tienes <b>{r1(free)} M€</b> libres.
       </p>
       <div>
         {data.squad.map((p: any) => (
           <PlayerRow key={p.player_id} p={p} onOpen={() => onPlayer(p.player_id)}
             tone={p.starter ? "starter" : undefined}
             right={p.clause_locked
-              ? <span className="chip chip--clause"><IconLock size={11} strokeWidth={2.2} />{lockLabel(p.clause_lock_mins)}</span>
-              : undefined} />
+              ? <span className="lockchip"><IconLock size={11} strokeWidth={2.4} />{lockLabel(p.clause_lock_mins)}</span>
+              : <button className={"btn btn--sm " + (p.clause <= free ? "btn--clause" : "btn--quiet")}
+                  disabled={p.clause > free}
+                  onClick={(e) => { e.stopPropagation(); onClause({ ...p, owner: data.manager }); }}>
+                  <IconBolt size={13} strokeWidth={2.2} />{p.clause}
+                </button>} />
         ))}
       </div>
     </Sheet>
+  );
+}
+
+/* ------------------------------------------- confirmación del clausulazo */
+export function ClauseSheet({ p, free, lockH, busy, onClose, onConfirm }: {
+  p: any; free: number; lockH: number; busy?: boolean;
+  onClose: () => void; onConfirm: () => void;
+}) {
+  const left = r1(free - (p.clause ?? 0));
+  return (
+    <Sheet onClose={onClose} title="Clausulazo">
+      <div className="clausehero">
+        <span className="clausehero__ico"><IconBolt size={26} strokeWidth={2} /></span>
+        <span className="clausehero__k">Clausulazo</span>
+        <span className="clausehero__v num">{p.clause}<span> M€</span></span>
+      </div>
+
+      <div className="prow" style={{ marginTop: 12 }}>
+        <Photo code={p.feb_code} name={p.name} />
+        <div className="prow__body">
+          <div className="prow__name">{prettyName(p.name)}</div>
+          <div className="prow__team">{prettyTeam(p.team)}</div>
+          <div className="prow__meta"><span className="prow__price num">{p.price} M€</span>
+            {p.owner && <span className="prow__owner">de {p.owner}</span>}</div>
+        </div>
+      </div>
+
+      <div className="ledger">
+        <div><span>Tu saldo</span><b className="num">{r1(free)} M€</b></div>
+        <div><span>Cláusula</span><b className="num" style={{ color: "var(--clause)" }}>−{p.clause} M€</b></div>
+        <div className="ledger__total"><span>Te quedan</span><b className="num">{left} M€</b></div>
+      </div>
+
+      <p className="hint" style={{ marginTop: 12 }}>
+        El dinero va entero a {p.owner ?? "su mánager"}. Al llegar a tu plantilla, el jugador
+        queda blindado {lockH} h y su cláusula se recalcula.
+      </p>
+
+      <div className="sheet__actions">
+        <button className="btn btn--clause btn--block btn--lg" disabled={busy || left < 0} onClick={onConfirm}>
+          <IconBolt size={18} strokeWidth={2.2} />Confirmar clausulazo
+        </button>
+        <button className="btn btn--quiet btn--block" onClick={onClose}>Cancelar</button>
+      </div>
+    </Sheet>
+  );
+}
+
+/* -------------------------------------- jornada de otro mánager (desglose) */
+export function ManagerJornadaSheet({ row, onClose }: { row: any; onClose: () => void }) {
+  const players: any[] = row.players ?? [];
+  const starters = players.filter((p) => p.starter);
+  const bench = players.filter((p) => !p.starter);
+  return (
+    <Sheet onClose={onClose} title={row.manager}>
+      <div className="sheet__head" style={{ marginBottom: 10 }}>
+        <div className="sheet__body">
+          <h2>{row.manager}</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            Jornada {row.jornada} · {row.pos}º con {row.points} puntos
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+      {starters.map((p) => <JornadaLine key={p.player_id} p={p} />)}
+      {bench.length > 0 && <>
+        <Section right="no suman">Banquillo</Section>
+        {bench.map((p) => <JornadaLine key={p.player_id} p={p} bench />)}
+      </>}
+    </Sheet>
+  );
+}
+
+function JornadaLine({ p, bench }: { p: any; bench?: boolean }) {
+  return (
+    <div className={"prow" + (bench ? " prow--dim" : "")}>
+      <Photo code={p.feb_code} name={p.name} variant="sm" />
+      <div className="prow__body">
+        <div className="prow__name">{prettyName(p.name)}</div>
+        <div className="prow__team">{prettyTeam(p.team)}</div>
+      </div>
+      {p.played ? <PfBox value={p.points} muted={bench} /> : <span className="dnp">No jugó</span>}
+    </div>
   );
 }

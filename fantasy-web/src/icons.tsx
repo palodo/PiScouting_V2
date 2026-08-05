@@ -112,6 +112,10 @@ export const IconLogout = stroke(<>
   <path d="M14.3 6.6v-.8a2.3 2.3 0 0 0-2.3-2.3H6.1a2.3 2.3 0 0 0-2.3 2.3v12.4a2.3 2.3 0 0 0 2.3 2.3H12a2.3 2.3 0 0 0 2.3-2.3v-.8" />
   <path d="M20.2 12H9.5m7.1-3.6 3.6 3.6-3.6 3.6" />
 </>);
+export const IconSearch = stroke(<>
+  <circle cx="11" cy="11" r="6.6" />
+  <path d="m16 16 4.4 4.4" />
+</>);
 export const IconSliders = stroke(<>
   <path d="M4 7.5h9.2M18.4 7.5H20M4 16.5h3.6M12.8 16.5H20" />
   <circle cx="15.8" cy="7.5" r="2.5" />

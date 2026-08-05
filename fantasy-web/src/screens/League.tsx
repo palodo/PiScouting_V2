@@ -1,22 +1,21 @@
 /* ============================================================================
-   Pantalla de una liga: equipo, mercado, clasificación y actividad.
-   La lógica de datos es la misma de siempre (mismos endpoints); lo que cambia
-   es cómo se presenta.
+   Pantalla de una liga: equipo, mercado (subastas + cláusulas), clasificación
+   por jornada y actividad.
    ========================================================================== */
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Me } from "../App";
 import {
-  IconActivity, IconAlert, IconArrowLeft, IconBolt, IconCheck, IconChevronLeft,
-  IconChevronRight, IconClose, IconCopy, IconMarket, IconPlay, IconSquad,
-  IconStar, IconStarOn, IconTrophy,
+  IconActivity, IconAlert, IconArrowLeft, IconCheck, IconCopy, IconMarket,
+  IconPlay, IconSquad, IconStar, IconStarOn, IconTrophy,
 } from "../icons";
-import { Delta, FeedRow, PlayerRow, fp } from "../parts";
+import { ClauseMeta, Delta, FeedRow, PlayerRow, fp } from "../parts";
 import {
-  Empty, HalfCourt, Loading, Photo, Section, Segmented, SkeletonList,
-  fmtWhen, prettyName, useCountdown, useNow,
+  Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
-import { BidSheet, ManagerSheet, PlayerSheet } from "./sheets";
+import MarketTab from "./Market";
+import TableTab from "./Table";
+import { BidSheet, ClauseSheet, ManagerJornadaSheet, ManagerSheet, PlayerSheet } from "./sheets";
 
 type Tab = "equipo" | "mercado" | "liga" | "feed";
 const TABS: [Tab, (p: any) => any, string][] = [
@@ -36,18 +35,23 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 
 export default function League({ id, me, onBack }: { id: number; me: Me; onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("equipo");
+  const [marketView, setMarketView] = useState<"subastas" | "clausulas">("subastas");
   const [data, setData] = useState<any>(null);
   const [market, setMarket] = useState<any>(null);
+  const [clauses, setClauses] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [bidFor, setBidFor] = useState<any>(null);
   const [playerFor, setPlayerFor] = useState<number | null>(null);
   const [rivalFor, setRivalFor] = useState<any>(null);
+  const [jornadaFor, setJornadaFor] = useState<any>(null);
+  const [clauseFor, setClauseFor] = useState<any>(null);
   const [jr, setJr] = useState<any>(null);
   const inited = useRef(false);
 
   async function load() { const d = await api.league(id); setData(d); return d; }
   async function loadMarket() { const m = await api.market(id); setMarket(m); return m; }
+  async function loadClauses() { const c = await api.clauses(id); setClauses(c); return c; }
 
   useEffect(() => {
     load().then((d) => {
@@ -56,14 +60,17 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       if (d.league.market_open) { setTab("mercado"); loadMarket(); }
     });
   }, [id]);
-  // al cambiar de pestaña refrescamos: la liga es en vivo (fichajes, cláusulas, nuevos mánagers)
-  useEffect(() => { load(); if (tab === "mercado") loadMarket(); }, [tab]);
+  // al cambiar de pestaña refrescamos: la liga es en vivo (fichajes, cláusulas, mánagers)
+  useEffect(() => {
+    load();
+    if (tab === "mercado") { loadMarket(); loadClauses().catch(() => setClauses({ players: [] })); }
+  }, [tab]);
   useEffect(() => {
     if (tab !== "mercado" || !data?.league?.market_open) return;
     const t = setInterval(() => { loadMarket(); load(); }, 20000);
     return () => clearInterval(t);
   }, [tab, data?.league?.market_open]);
-  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 2600); return () => clearTimeout(t); }, [msg]);
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 2800); return () => clearTimeout(t); }, [msg]);
   useEffect(() => { setJr(data?.jornada_ranking ?? null); }, [data?.jornada_ranking]);
 
   const closes = useCountdown(market?.closes_at ?? data?.league?.market_closes_at ?? null);
@@ -96,6 +103,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       await fn();
       await load();
       if (market || tab === "mercado") await loadMarket();
+      if (clauses) await loadClauses();
       if (note) setMsg({ text: note });
     } catch (e: any) {
       setMsg({ text: e.message, bad: true });
@@ -111,9 +119,10 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
     act(() => api.lineup(id, isStarter ? ids.filter((x) => x !== pid) : [...ids, pid]));
   }
 
-  function copyCode() {
-    navigator.clipboard?.writeText(lg.join_code);
-    setMsg({ text: "Código copiado" });
+  function openManager(r: any) {
+    // desde la jornada ya tenemos su desglose; desde la general hay que pedir la plantilla
+    if (r.players) setJornadaFor({ ...r, jornada: jr?.jornada });
+    else api.memberSquad(id, r.member_id).then(setRivalFor).catch(() => {});
   }
 
   return (
@@ -157,7 +166,10 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
                 <span className="meta__v num">{r1(data.my_budget)} M€</span>
               </div>
             )}
-            <button className="meta" onClick={copyCode}>
+            <button className="meta" onClick={() => {
+              navigator.clipboard?.writeText(lg.join_code);
+              setMsg({ text: "Código copiado" });
+            }}>
               <span className="meta__k">Código</span>
               <span className="meta__v">{lg.join_code}<IconCopy size={13} /></span>
             </button>
@@ -172,8 +184,9 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         )}
 
         {tab === "mercado" && (
-          <MarketTab lg={lg} market={market} admin={admin} busy={busy} closes={closes} opens={opens}
-            onOpenPlayer={setPlayerFor} onBid={setBidFor}
+          <MarketTab lg={lg} market={market} clauses={clauses} admin={admin} busy={busy}
+            closes={closes} opens={opens} view={marketView} onView={setMarketView}
+            onOpenPlayer={setPlayerFor} onBid={setBidFor} onClause={setClauseFor}
             onForceOpen={() => act(() => api.openMarket(id), "Mercado abierto")}
             onForceClose={() => act(() => api.closeMarket(id), "Mercado cerrado y pujas resueltas")} />
         )}
@@ -181,7 +194,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         {tab === "liga" && (
           <TableTab data={data} lg={lg} jr={jr}
             onJornada={(j: number) => api.jornada(id, j).then(setJr).catch(() => {})}
-            onManager={(mid: number) => api.memberSquad(id, mid).then(setRivalFor).catch(() => {})} />
+            onManager={openManager} />
         )}
 
         {tab === "feed" && (
@@ -209,14 +222,29 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         <PlayerSheet leagueId={id} playerId={playerFor} league={lg} busy={busy}
           myMemberId={data.my_member_id} freeBudget={freeBudget}
           onClose={() => setPlayerFor(null)}
-          onClause={async (pid: number) => { setPlayerFor(null); await act(() => api.payClause(id, pid), "¡Clausulazo!"); }}
+          onClause={(p: any) => { setPlayerFor(null); setClauseFor(p); }}
           onRaise={async (pid: number, v: number) => { setPlayerFor(null); await act(() => api.raiseClause(id, pid, v), "Cláusula subida"); }}
           onSell={async (pid: number) => { setPlayerFor(null); await act(() => api.sell(id, pid), "Jugador vendido"); }} />
       )}
 
+      {clauseFor && (
+        <ClauseSheet p={clauseFor} free={freeBudget} lockH={lg.clause_lock_h} busy={busy}
+          onClose={() => setClauseFor(null)}
+          onConfirm={async () => {
+            const who = prettyName(clauseFor.name);
+            setClauseFor(null);
+            await act(() => api.payClause(id, clauseFor.player_id), `¡Clausulazo! ${who} es tuyo`);
+          }} />
+      )}
+
       {rivalFor && (
-        <ManagerSheet data={rivalFor} onClose={() => setRivalFor(null)}
-          onPlayer={(pid) => { setRivalFor(null); setPlayerFor(pid); }} />
+        <ManagerSheet data={rivalFor} free={freeBudget} onClose={() => setRivalFor(null)}
+          onPlayer={(pid) => { setRivalFor(null); setPlayerFor(pid); }}
+          onClause={(p: any) => { setRivalFor(null); setClauseFor(p); }} />
+      )}
+
+      {jornadaFor && (
+        <ManagerJornadaSheet row={jornadaFor} onClose={() => setJornadaFor(null)} />
       )}
 
       {bidFor && (
@@ -270,10 +298,18 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
               className={"tok" + (p ? "" : " tok--empty") + (p?.departed ? " tok--gone" : "")}>
               <Photo code={p?.feb_code} name={p?.name} variant="tok" />
               <span className="tok__tag">{p ? prettyName(p.name).split(" ").slice(-1)[0] : "Libre"}</span>
-              {p && <span className="tok__sub num">{p.departed ? "0 PF" : `${fp(p).toFixed(1)} PF`}</span>}
+              {p && <span className="tok__sub num">{p.departed ? "0" : fp(p).toFixed(1)} PF</span>}
             </div>
           );
         })}
+      </div>
+
+      <div className="lineup">
+        <div style={{ flex: 1 }}>
+          <div className="lineup__k">Proyección por jornada</div>
+          <div className="lineup__note">Lo que suma tu once con su media de puntos fantasy</div>
+        </div>
+        <div className="lineup__v num">{lineupFp}</div>
       </div>
 
       {gone.length > 0 && (
@@ -293,21 +329,6 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
       )}
 
       <Section right={`${starters.length}/${lg.lineup_size}`}>Once titular</Section>
-      <div className="card card--pad" style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <span style={{ color: "var(--accent)" }}><IconBolt size={20} strokeWidth={2} /></span>
-        <div style={{ flex: 1 }}>
-          <div className="muted" style={{ fontSize: "var(--fs-xs)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Proyección por jornada
-          </div>
-          <div className="dim" style={{ fontSize: "var(--fs-sm)" }}>
-            Puntos fantasy que suma tu once según su media
-          </div>
-        </div>
-        <div className="num" style={{ fontFamily: "var(--display)", fontSize: "var(--fs-2xl)", fontWeight: 800 }}>
-          {lineupFp}
-        </div>
-      </div>
-
       {starters.length === 0 && (
         <Empty icon={<IconSquad size={22} />} title="No has alineado a nadie">
           Marca con la estrella a {lg.lineup_size} jugadores de tu plantilla.
@@ -316,7 +337,8 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
       {starters.map((p: any) => (
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : "starter"}
-          right={<><Delta v={p.delta} /><StarBtn p={p} /></>} />
+          meta={<><Delta v={p.delta} /><ClauseMeta p={p} /></>}
+          right={<StarBtn p={p} />} />
       ))}
 
       <Section right={String(bench.length)}>Banquillo</Section>
@@ -328,181 +350,9 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
       {bench.map((p: any) => (
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : undefined}
-          right={<><Delta v={p.delta} /><StarBtn p={p} /></>} />
+          meta={<><Delta v={p.delta} /><ClauseMeta p={p} /></>}
+          right={<StarBtn p={p} />} />
       ))}
-    </>
-  );
-}
-
-/* ----------------------------------------------------------------- mercado */
-function MarketTab({ lg, market, admin, busy, closes, opens, onOpenPlayer, onBid, onForceOpen, onForceClose }: any) {
-  const now = useNow(5000);
-  const from = market?.opens_at ?? lg.market_opens_at;
-  const to = market?.closes_at ?? lg.market_closes_at;
-  let pct = 0;
-  if (lg.market_open && from && to) {
-    const a = new Date(from).getTime(), b = new Date(to).getTime();
-    pct = Math.min(100, Math.max(0, ((now - a) / (b - a)) * 100));
-  }
-  const committed = market?.committed ?? 0;
-  const free = r1((market?.my_budget ?? 0) - committed);
-
-  return (
-    <>
-      <div className={"mkt" + (lg.market_open ? "" : " mkt--closed")}>
-        <div className="mkt__k">
-          <span className={"livedot" + (lg.market_open ? "" : " livedot--off")} />
-          {lg.market_open ? "Mercado abierto · cierra en" : "Mercado cerrado · abre en"}
-        </div>
-        <div className="mkt__time num">{lg.market_open ? closes : (opens ?? "—")}</div>
-        <div className="mkt__sub">
-          {lg.market_open
-            ? `${market?.listings?.length ?? 0} jugadores a subasta · gana la puja más alta`
-            : `Próxima apertura ${fmtWhen(lg.market_opens_at)} · ${lg.market_size} jugadores`}
-        </div>
-        {lg.market_open && <div className="progress"><div className="progress__fill" style={{ width: `${100 - pct}%` }} /></div>}
-        {admin && (
-          <div style={{ marginTop: 12 }}>
-            {lg.market_open
-              ? <button className="btn btn--sm btn--quiet" disabled={busy} onClick={onForceClose}>
-                  <IconClose size={14} />Cerrar ya y resolver pujas
-                </button>
-              : <button className="btn btn--sm btn--quiet" disabled={busy} onClick={onForceOpen}>
-                  <IconPlay size={13} />Abrir mercado ya
-                </button>}
-          </div>
-        )}
-      </div>
-
-      {committed > 0 && (
-        <div className="budget">
-          <div>
-            <div className="muted" style={{ fontSize: "var(--fs-2xs)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Libre
-            </div>
-            <div className="budget__n">{free} M€</div>
-          </div>
-          <div className="budget__bar">
-            <div className="budget__used"
-              style={{ width: `${Math.min(100, (committed / Math.max(1, market.my_budget)) * 100)}%` }} />
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div className="muted" style={{ fontSize: "var(--fs-2xs)", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              En pujas
-            </div>
-            <div className="budget__n" style={{ color: "var(--clause)" }}>{r1(committed)} M€</div>
-          </div>
-        </div>
-      )}
-
-      {!lg.market_open
-        ? <Empty icon={<IconMarket size={22} />} title="El mercado está cerrado">
-            Vuelve cuando abra para pujar por los jugadores de la tanda.
-          </Empty>
-        : !market ? <SkeletonList n={5} />
-          : market.listings.length === 0
-            ? <Empty icon={<IconMarket size={22} />} title="No hay jugadores en esta tanda" />
-            : market.listings.map((l: any) => (
-              <PlayerRow key={l.listing_id} p={l} onOpen={() => onOpenPlayer(l.player_id)}
-                tone={l.my_bid ? "bid" : undefined}
-                right={<>
-                  {l.my_bid != null && <span className="chip chip--pos">Tu puja <b>{l.my_bid}</b></span>}
-                  <button className="btn btn--sm" disabled={busy}
-                    onClick={(e) => { e.stopPropagation(); onBid(l); }}>
-                    {l.my_bid != null ? "Cambiar" : "Pujar"}
-                  </button>
-                </>} />
-            ))}
-    </>
-  );
-}
-
-/* ------------------------------------------------------------ clasificación */
-function TableTab({ data, lg, jr, onJornada, onManager }: any) {
-  const [view, setView] = useState<"jornada" | "general">(
-    (jr?.rows ?? []).length > 0 ? "jornada" : "general");
-  const js: number[] = jr?.jornadas ?? [];
-  const i = js.indexOf(jr?.jornada);
-  const rows: any[] = jr?.rows ?? [];
-
-  return (
-    <>
-      <div style={{ margin: "4px 0 12px" }}>
-        <Segmented value={view} onChange={setView} options={[
-          { v: "jornada", label: "Jornada" },
-          { v: "general", label: "General" },
-        ]} />
-      </div>
-
-      {view === "jornada" && (rows.length === 0 ? (
-        <Empty icon={<IconTrophy size={22} />} title="Aún no hay ninguna jornada puntuada">
-          Cuando se puntúe la primera jornada verás aquí quién más sumó.
-        </Empty>
-      ) : (
-        <>
-          <div className="jnav">
-            <button className="iconbtn iconbtn--framed" disabled={i <= 0} aria-label="Jornada anterior"
-              onClick={() => onJornada(js[i - 1])}><IconChevronLeft size={18} /></button>
-            <div className="jnav__title">
-              <span>Clasificación de la</span>
-              <b>Jornada {jr.jornada}</b>
-            </div>
-            <button className="iconbtn iconbtn--framed" disabled={i < 0 || i >= js.length - 1}
-              aria-label="Jornada siguiente" onClick={() => onJornada(js[i + 1])}>
-              <IconChevronRight size={18} />
-            </button>
-          </div>
-
-          <div className="podium">
-            {rows.slice(0, 3).map((r: any) => (
-              <div key={r.member_id}
-                className={`pod pod--${r.pos}` + (r.member_id === data.my_member_id ? " is-me" : "")}>
-                <span className="pod__pos num">{r.pos}</span>
-                <span className="pod__name">{r.manager}</span>
-                <span className="pod__pts num">{r.points}<span>pts</span></span>
-              </div>
-            ))}
-          </div>
-
-          {rows.length > 3 && (
-            <div className="list">
-              {rows.slice(3).map((r: any) => (
-                <div key={r.member_id}
-                  className={"lrow" + (r.member_id === data.my_member_id ? " is-me" : "")}>
-                  <span className="lrow__pos">{r.pos}</span>
-                  <span className="lrow__who"><b>{r.manager}</b></span>
-                  <span className="lrow__pts">{r.points}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="hint" style={{ marginTop: 12 }}>
-            Puntos de esa jornada: la suma de los <b>puntos fantasy</b> de los cinco titulares.
-          </p>
-        </>
-      ))}
-
-      {view === "general" && (
-        <>
-          <div className="list">
-            {data.standings.map((r: any) => (
-              <button key={r.member_id}
-                className={"lrow lrow--tap" + (r.member_id === data.my_member_id ? " is-me" : "")}
-                onClick={() => onManager(r.member_id)}>
-                <span className="lrow__pos">{r.rank}</span>
-                <span className="lrow__who">
-                  <b>{r.manager}</b>
-                  <small>{r.squad_count}/{lg.squad_size} jugadores · {r.squad_value} M€ en plantilla</small>
-                </span>
-                <span className="lrow__pts">{r.total_points}</span>
-              </button>
-            ))}
-          </div>
-          <p className="hint" style={{ marginTop: 12 }}>
-            Toca un mánager para ver su plantilla y pagar cláusulas.
-          </p>
-        </>
-      )}
     </>
   );
 }

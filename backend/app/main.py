@@ -555,6 +555,20 @@ def fantasy_market(league_id: int, user: User = Depends(auth.get_current_user),
     return fantasy_mod.market(session, lg, member)
 
 
+@app.get("/api/fantasy/leagues/{league_id}/clauses")
+def fantasy_clauses(league_id: int, user: User = Depends(auth.get_current_user),
+                    session: Session = Depends(get_session)):
+    """Escaparate de cláusulas de toda la liga, para ir de clausulazo."""
+    lg = _get_league(session, league_id)
+    member = fantasy_mod.member_of(session, league_id, user.id)
+    return {
+        "players": fantasy_mod.league_clauses(session, lg, member),
+        "my_budget": member.budget_remaining if member else 0.0,
+        "committed": fantasy_mod.committed_amount(session, member.id) if member else 0.0,
+        "clause_lock_h": lg.clause_lock_h,
+    }
+
+
 @app.post("/api/fantasy/leagues/{league_id}/bid")
 def fantasy_bid(league_id: int, body: BidBody, user: User = Depends(auth.get_current_user),
                 session: Session = Depends(get_session)):

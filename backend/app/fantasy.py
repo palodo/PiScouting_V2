@@ -800,6 +800,35 @@ def player_detail(session: Session, league: FantasyLeague, player_id: int) -> di
     }
 
 
+def league_clauses(session: Session, league: FantasyLeague,
+                   member: Optional[FantasyMember]) -> list[dict]:
+    """Todos los jugadores con dueño de la liga y su cláusula, de la más barata a la más
+    cara: es el escaparate para ir de clausulazo."""
+    info = {r["player_id"]: r for r in all_priced(session, league)}
+    now = utcnow()
+    members = session.exec(select(FantasyMember).where(
+        FantasyMember.league_id == league.id)).all()
+    out = []
+    for m in members:
+        for p in picks_of(session, m.id):
+            d = info.get(p.player_id, {})
+            locked = bool(p.clause_locked_until and now < p.clause_locked_until)
+            out.append({
+                "player_id": p.player_id, "name": d.get("name", "?"),
+                "feb_code": d.get("feb_code"), "team": d.get("team"),
+                "price": d.get("price", p.buy_price),
+                "fp_avg": d.get("fp_avg", 0), "fp_form": d.get("fp_form", 0),
+                "val_avg": d.get("val_avg", 0), "games": d.get("games", 0),
+                "clause": p.clause, "clause_locked": locked,
+                "clause_lock_mins": int((p.clause_locked_until - now).total_seconds() // 60) if locked else 0,
+                "owner_member_id": m.id, "owner": m.manager_name,
+                "mine": bool(member and m.id == member.id),
+                "starter": p.starter, "departed": bool(d.get("departed")),
+            })
+    out.sort(key=lambda r: r["clause"])
+    return out
+
+
 def member_squad(session: Session, league: FantasyLeague, member_id: int) -> list[dict]:
     """Plantilla de cualquier mánager (para ver rivales y sus cláusulas)."""
     m = session.get(FantasyMember, member_id)
@@ -924,6 +953,26 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
     for i, r in enumerate(out):
         # mismos puntos, mismo puesto
         r["pos"] = out[i - 1]["pos"] if i and r["points"] == out[i - 1]["points"] else i + 1
+
+    # Cómo lo hizo cada jugador esa jornada. Ojo: la alineación no se guarda con
+    # histórico, así que se reconstruye con la plantilla ACTUAL del mánager; el total
+    # bueno es `points`, que sí quedó guardado al puntuar.
+    if out:
+        pts = jornada_points(session, league, j)
+        info = {r["player_id"]: r for r in all_priced(session, league)}
+        for r in out:
+            players = []
+            for p in picks_of(session, r["member_id"]):
+                d = info.get(p.player_id, {})
+                players.append({
+                    "player_id": p.player_id, "name": d.get("name", "?"),
+                    "feb_code": d.get("feb_code"), "team": d.get("team"),
+                    "points": pts.get(p.player_id, 0.0), "played": p.player_id in pts,
+                    "starter": p.starter,
+                })
+            players.sort(key=lambda x: (not x["starter"], -x["points"]))
+            r["players"] = players
+
     js = sorted({s_.jornada for s_ in session.exec(
         select(FantasyJornadaScore).where(FantasyJornadaScore.league_id == league.id)).all()})
     return {"jornada": j, "rows": out, "jornadas": js}

@@ -54,6 +54,7 @@ export const api = {
   advance: (id: number) => post(`/fantasy/leagues/${id}/advance`),
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),
 
+  clauses: (id: number) => get(`/fantasy/leagues/${id}/clauses`),
   player: (id: number, playerId: number) => get(`/fantasy/leagues/${id}/player/${playerId}`),
   memberSquad: (id: number, memberId: number) => get(`/fantasy/leagues/${id}/members/${memberId}/squad`),
   payClause: (id: number, player_id: number) => post(`/fantasy/leagues/${id}/clause`, { player_id }),

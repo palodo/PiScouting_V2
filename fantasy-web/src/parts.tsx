@@ -36,17 +36,30 @@ export function lockLabel(mins?: number) {
   return h > 0 ? `${h} h` : `${mins} min`;
 }
 
+/** El número que decide la liga, en grande y aislado del resto. */
+export function PfBox({ value, muted, label = "PF" }: { value: number; muted?: boolean; label?: string }) {
+  return (
+    <div className={"pfbox" + (muted ? " pfbox--muted" : "")}>
+      <b className="num">{muted ? "0" : value.toFixed(1)}</b>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 /**
- * Fila de jugador. `variant` cambia lo que se enseña a la derecha:
- *  · "market" → precio de salida y botón de puja
- *  · "squad"  → precio actual, variación desde la compra y acción
- *  · "plain"  → solo datos (plantilla de un rival)
+ * Fila de jugador. A la izquierda quién es y cuánto vale; a la derecha, aislados,
+ * los puntos fantasy. Las medias de valoración y demás se han bajado a la ficha:
+ * de un vistazo solo debe competir un número.
  */
-export function PlayerRow({ p, onOpen, right, tone }: {
+export function PlayerRow({ p, onOpen, right, tone, meta, hero, pf: pfValue }: {
   p: RowPlayer;
   onOpen?: () => void;
   right?: ReactNode;
   tone?: "starter" | "bid" | "gone";
+  meta?: ReactNode;
+  /** Sustituye la caja de PF cuando la pantalla va de otra cosa (p. ej. cláusulas). */
+  hero?: ReactNode;
+  pf?: number;
 }) {
   const cls = ["prow", onOpen ? "prow--tap" : "", tone ? `prow--${tone}` : ""].join(" ").trim();
   // Sin role="button": la fila lleva dentro botones de verdad (pujar, alinear) y anidar
@@ -58,32 +71,36 @@ export function PlayerRow({ p, onOpen, right, tone }: {
       <div className="prow__body">
         <div className="prow__name">{prettyName(p.name)}</div>
         <div className="prow__team">{prettyTeam(p.team) || "—"}</div>
-        <div className="chiprow">
-          {p.departed
-            ? <span className="chip chip--neg">Ya no puntúa</span>
-            : <span className="chip chip--accent"><b>{fp(p).toFixed(1)}</b> PF</span>}
-          <span className="chip">VAL <b>{(p.val_avg ?? 0).toFixed(1)}</b></span>
-          {p.clause != null && (
-            <span className="chip chip--clause">
-              {p.clause_locked ? <IconLock size={11} strokeWidth={2.2} /> : <IconBolt size={11} strokeWidth={2.2} />}
-              <b>{p.clause}</b>
-            </span>
-          )}
-          {!!p.bids && <span className="chip"><IconGavel size={11} strokeWidth={2.2} />{p.bids}</span>}
+        <div className="prow__meta">
+          <span className="prow__price num">{p.price} M€</span>
+          {meta}
+          {!!p.bids && <span className="prow__bids"><IconGavel size={11} strokeWidth={2.2} />{p.bids}</span>}
+          {p.departed && <span className="prow__gone">No puntúa</span>}
         </div>
       </div>
       <div className="prow__side">
-        <div className="prow__price num">{p.price}<span> M€</span></div>
+        {hero ?? <PfBox value={pfValue ?? fp(p)} muted={p.departed} />}
         {right}
       </div>
     </div>
   );
 }
 
+/** Cláusula del jugador, en la línea de datos de la fila. */
+export function ClauseMeta({ p }: { p: RowPlayer }) {
+  if (p.clause == null) return null;
+  return (
+    <span className="prow__clause">
+      {p.clause_locked ? <IconLock size={11} strokeWidth={2.4} /> : <IconBolt size={11} strokeWidth={2.4} />}
+      {p.clause}
+    </span>
+  );
+}
+
 /** Variación de precio desde que lo fichaste. */
 export function Delta({ v }: { v?: number }) {
-  if (v == null) return null;
-  return <Trend v={v} />;
+  if (v == null || Math.abs(v) < 0.05) return null;
+  return <Trend v={v} suffix=" M€" />;
 }
 
 export function FeedRow({ e }: { e: { id: number; kind: string; text: string; at: string } }) {
