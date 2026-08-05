@@ -1,0 +1,5 @@
+# Con un dominio real en DOMAIN (p.ej. api.tudominio.com) Caddy saca HTTPS solo.
+# Para pruebas sin dominio, pon DOMAIN=":80" en el .env (HTTP por la IP de la VM).
+{$DOMAIN} {
+	reverse_proxy app:8080
+}

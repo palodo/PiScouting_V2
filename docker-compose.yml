@@ -1,0 +1,38 @@
+# Despliegue en una VM (Azure/DigitalOcean/etc.): backend + Caddy (HTTPS automático).
+# La BBDD SQLite vive en el volumen 'piscouting_data' (persistente en el disco de la VM).
+# Variables en un fichero .env junto a este (ver .env.example).
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - PISCOUTING_DB_PATH=/data/scouting.db
+      - PISCOUTING_SECRET=${PISCOUTING_SECRET}
+      - PISCOUTING_ADMIN_TOKEN=${PISCOUTING_ADMIN_TOKEN}
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN}
+    volumes:
+      - piscouting_data:/data
+    ports:
+      - "127.0.0.1:8080:8080"   # solo local (para el cron); el acceso público va por Caddy
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  piscouting_data:
+  caddy_data:
+  caddy_config:
