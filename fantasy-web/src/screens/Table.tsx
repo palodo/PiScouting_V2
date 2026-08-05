@@ -84,7 +84,7 @@ function JornadaView({ jr, myId, onJornada, onManager }: any) {
         </p>
       )}
 
-      <Section right={`${r1(starters.reduce((a, p) => a + p.points, 0))} pts`}>Tu once</Section>
+      <Section right={`${r1(starters.reduce((a, p) => a + p.points, 0))} pts`}>Tu quinteto</Section>
       {starters.map((p) => <JornadaRow key={p.player_id} p={p} />)}
       {starters.length === 0 && <p className="hint">No tenías a nadie alineado.</p>}
 

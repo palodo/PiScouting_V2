@@ -213,8 +213,8 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
           </label>
         </div>
         <p className="hint" style={{ margin: "12px 0 0" }}>
-          Alineas 5 titulares. Cada uno suma sus <b>puntos fantasy</b>: su valoración del
-          partido más un bonus si su equipo gana.
+          Sacas un <b>quinteto titular</b>. Cada uno suma sus <b>puntos fantasy</b>: su
+          valoración del partido más un bonus si su equipo gana.
         </p>
       </div>
 

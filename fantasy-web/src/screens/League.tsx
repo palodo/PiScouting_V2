@@ -281,7 +281,7 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
   const StarBtn = ({ p }: { p: any }) => (
     <button className={"iconbtn" + (p.starter ? " is-on" : "")} disabled={busy || p.departed}
       title={p.departed ? "Ya no puntúa en esta conferencia"
-        : p.starter ? "Quitar del once" : "Poner en el once"}
+        : p.starter ? "Quitar del quinteto" : "Poner en el quinteto"}
       onClick={(e) => { e.stopPropagation(); onToggle(p.player_id, p.starter); }}>
       {p.starter ? <IconStarOn size={19} /> : <IconStar size={19} />}
     </button>
@@ -307,7 +307,7 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
       <div className="lineup">
         <div style={{ flex: 1 }}>
           <div className="lineup__k">Proyección por jornada</div>
-          <div className="lineup__note">Lo que suma tu once con su media de puntos fantasy</div>
+          <div className="lineup__note">Lo que suma tu quinteto con su media de puntos fantasy</div>
         </div>
         <div className="lineup__v num">{lineupFp}</div>
       </div>
@@ -320,15 +320,15 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
               ? "Un jugador tuyo ha fichado por otro equipo"
               : `${gone.length} jugadores tuyos han fichado por otro equipo`}</b>
             <span>{goneStarters.length === 1
-              ? "Tienes a uno en el once y sumará 0 puntos: cámbialo o véndelo desde su ficha."
+              ? "Tienes a uno en el quinteto y sumará 0 puntos: cámbialo o véndelo desde su ficha."
               : goneStarters.length > 1
-                ? `Tienes a ${goneStarters.length} en el once y sumarán 0 puntos: cámbialos o véndelos desde su ficha.`
+                ? `Tienes a ${goneStarters.length} en el quinteto y sumarán 0 puntos: cámbialos o véndelos desde su ficha.`
                 : "Ocupan sitio en la plantilla pero ya no puntúan. Véndelos para hacer hueco."}</span>
           </div>
         </div>
       )}
 
-      <Section right={`${starters.length}/${lg.lineup_size}`}>Once titular</Section>
+      <Section right={`${starters.length}/${lg.lineup_size}`}>Quinteto titular</Section>
       {starters.length === 0 && (
         <Empty icon={<IconSquad size={22} />} title="No has alineado a nadie">
           Marca con la estrella a {lg.lineup_size} jugadores de tu plantilla.
