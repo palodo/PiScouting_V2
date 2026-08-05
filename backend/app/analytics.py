@@ -223,6 +223,71 @@ def team_rankings(session: Session, competition: str, grupo: Optional[str], seas
 
 
 @cached
+def jornada_list(session: Session, competition: str, grupo: Optional[str], season: str) -> list[int]:
+    q = select(Match.jornada_num).where(
+        Match.competition == competition, Match.season == season, Match.jornada_num.is_not(None))
+    if grupo:
+        q = q.where(Match.grupo == grupo)
+    return sorted({n for n in session.exec(q).all() if n is not None})
+
+
+@cached
+def jornada_summary(session: Session, competition: str, grupo: Optional[str], season: str,
+                    jornada_num: int) -> dict:
+    """Resumen de una jornada: resultados y mejores actuaciones individuales."""
+    mq = select(Match).where(
+        Match.competition == competition, Match.season == season, Match.jornada_num == jornada_num)
+    if grupo:
+        mq = mq.where(Match.grupo == grupo)
+    matches = session.exec(mq).all()
+    match_ids = [m.id for m in matches]
+
+    # nombres/logos de equipos implicados
+    team_ids = {tid for m in matches for tid in (m.home_team_id, m.away_team_id) if tid}
+    teams = {t.id: t for t in session.exec(select(Team).where(Team.id.in_(team_ids))).all()} if team_ids else {}
+
+    results = []
+    for m in sorted(matches, key=lambda x: (x.match_date or __import__("datetime").date.min)):
+        h, a = teams.get(m.home_team_id), teams.get(m.away_team_id)
+        results.append({
+            "match_id": m.id, "date": m.match_date.isoformat() if m.match_date else None,
+            "home": h.name if h else None, "home_logo": h.logo if h else None, "home_score": m.home_score,
+            "away": a.name if a else None, "away_logo": a.logo if a else None, "away_score": m.away_score,
+            "home_win": (m.home_score is not None and m.away_score is not None and m.home_score > m.away_score),
+            "played": m.home_score is not None,
+        })
+
+    perf: list[dict] = []
+    if match_ids:
+        rows = session.exec(
+            select(PlayerMatchStat, Player, Team)
+            .join(Player, Player.id == PlayerMatchStat.player_id)
+            .join(Team, Team.id == PlayerMatchStat.team_id)
+            .where(PlayerMatchStat.match_id.in_(match_ids))
+        ).all()
+        for st, pl, tm in rows:
+            perf.append({
+                "player_id": pl.id, "name": pl.name, "feb_code": pl.feb_code, "photo_url": pl.photo_url,
+                "team_id": tm.id, "team": tm.name, "team_logo": tm.logo,
+                "pts": st.pts, "val": st.val, "treb": st.treb, "ast": st.ast, "t3m": st.t3m,
+                "plus_minus": st.plus_minus, "min": round(st.seconds / 60, 1),
+            })
+
+    def top(key, n=5):
+        return sorted(perf, key=lambda p: p[key], reverse=True)[:n]
+
+    return {
+        "jornada": jornada_num,
+        "num_matches": len(matches),
+        "played": sum(1 for r in results if r["played"]),
+        "results": results,
+        "mvp": top("val", 1)[0] if perf else None,
+        "top_pts": top("pts"), "top_val": top("val"),
+        "top_treb": top("treb"), "top_ast": top("ast"), "top_t3": top("t3m"),
+    }
+
+
+@cached
 def player_leaders(session: Session, competition: str, season: str,
                    stat: str = "pts", limit: int = 25) -> list[dict]:
     rows = session.exec(

@@ -126,6 +126,16 @@ export const api = {
       `/rankings/players?competition=${encodeURIComponent(competition)}&stat=${stat}&limit=${limit}&season=${season}`
     ),
   compareTeams: (ids: number[]) => get<any[]>(`/compare/teams?ids=${ids.join(",")}`),
+  jornadaList: (competition: string, grupo?: string, season = DEFAULT_SEASON) => {
+    const p = new URLSearchParams({ competition, season });
+    if (grupo) p.set("grupo", grupo);
+    return get<number[]>(`/jornada/list?${p}`);
+  },
+  jornadaSummary: (competition: string, jornada: number, grupo?: string, season = DEFAULT_SEASON) => {
+    const p = new URLSearchParams({ competition, season, jornada: String(jornada) });
+    if (grupo) p.set("grupo", grupo);
+    return get<any>(`/jornada/summary?${p}`);
+  },
   shotsTeam: (id: number) => get<ShotResponse>(`/shots/team/${id}`),
   shotsPlayer: (id: number) => get<ShotResponse>(`/shots/player/${id}`),
   shotsMatch: (id: number, teamId?: number) =>

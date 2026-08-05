@@ -135,6 +135,18 @@ def list_teams(competition: Optional[str] = None, grupo: Optional[str] = None,
     return _teams_data(session, competition, grupo, season)
 
 
+@app.get("/api/jornada/list")
+def jornada_list(competition: str, grupo: Optional[str] = None,
+                 season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
+    return analytics.jornada_list(session, competition, grupo, season)
+
+
+@app.get("/api/jornada/summary")
+def jornada_summary(competition: str, jornada: int, grupo: Optional[str] = None,
+                    season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
+    return analytics.jornada_summary(session, competition, grupo, season, jornada)
+
+
 @app.get("/api/teams/{team_id}")
 def team_detail(team_id: int, session: Session = Depends(get_session)):
     t = session.get(Team, team_id)

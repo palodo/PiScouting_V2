@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import MyTeam from "./pages/MyTeam";
 import Scout from "./pages/Scout";
 import Rankings from "./pages/Rankings";
+import JornadaPage from "./pages/JornadaPage";
 import TeamPage from "./pages/TeamPage";
 import PlayerPage from "./pages/PlayerPage";
 import MatchPage from "./pages/MatchPage";
@@ -16,6 +17,7 @@ function Sidebar() {
   const { user, logout } = useAuth();
   const items = [
     { to: "/", end: true, ico: "🏠", label: "Mi equipo" },
+    { to: "/jornada", ico: "🗓️", label: "Resumen jornada" },
     { to: "/rankings", ico: "📊", label: "Rankings" },
     { to: "/compare", ico: "⚔️", label: "Comparar" },
     { to: "/settings", ico: "⚙️", label: "Ajustes" },
@@ -108,6 +110,7 @@ export default function App() {
       <main className="main">
         <Routes>
           <Route path="/" element={<MyTeam />} />
+          <Route path="/jornada" element={<JornadaPage />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/compare" element={<ComparePage />} />
           <Route path="/settings" element={<Settings />} />
