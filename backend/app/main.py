@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+import threading
+
+from fastapi import FastAPI, Depends, HTTPException, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,7 +15,7 @@ from sqlmodel import Session, select, func
 from .db import engine, init_db, get_session
 from .config import DEFAULT_SEASON
 from .models import Team, Player, Match, PlayerMatchStat, User, FantasyLeague
-from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache
+from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod
 from .ingest.crawl import ingest_team
 
 app = FastAPI(title="PiScouting API", version="0.1.0")
@@ -62,6 +64,37 @@ def health(session: Session = Depends(get_session)):
                          (PlayerMatchStat, "player_stats")]:
         counts[label] = session.exec(select(func.count()).select_from(model)).one()
     return {"status": "ok", "counts": counts}
+
+
+# ===================== Actualización diaria (admin) =====================
+def _check_admin(token: Optional[str]) -> None:
+    admin_token = _os.environ.get("PISCOUTING_ADMIN_TOKEN")
+    if not admin_token:
+        raise HTTPException(503, "Actualización no configurada: define PISCOUTING_ADMIN_TOKEN")
+    if not token or token != admin_token:
+        raise HTTPException(403, "Token de administración inválido")
+
+
+@app.post("/api/admin/refresh")
+def admin_refresh(x_admin_token: Optional[str] = Header(default=None), wait: bool = False):
+    """Actualiza la BBDD desde la FEB (calendarios + detalle nuevo + limpia caché).
+
+    Protegido por la cabecera X-Admin-Token. Pensado para dispararlo una vez al día
+    desde un cron (p.ej. GitHub Actions). Por defecto responde al momento y trabaja en
+    segundo plano; con ?wait=true espera al resultado."""
+    _check_admin(x_admin_token)
+    if refresh_mod.is_running():
+        return {"status": "already_running"}
+    if wait:
+        return refresh_mod.run_refresh()
+    threading.Thread(target=refresh_mod.run_refresh, daemon=True).start()
+    return {"status": "started"}
+
+
+@app.get("/api/admin/refresh/status")
+def admin_refresh_status(x_admin_token: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_token)
+    return {"running": refresh_mod.is_running(), "last": refresh_mod.last_result()}
 
 
 @cache.cached

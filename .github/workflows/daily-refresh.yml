@@ -1,0 +1,22 @@
+name: Actualización diaria de la BBDD
+
+# Dispara la actualización de datos FEB una vez al día. La lógica corre en el backend
+# (endpoint POST /api/admin/refresh); esto solo lo llama.
+#
+# Configura antes, en el repo → Settings → Secrets and variables → Actions:
+#   - PISCOUTING_API_URL     p.ej. https://piscouting-api.onrender.com  (sin barra final)
+#   - PISCOUTING_ADMIN_TOKEN  el mismo valor que la variable de entorno del backend
+on:
+  schedule:
+    - cron: "0 5 * * *"   # 05:00 UTC (~06:00-07:00 hora de Madrid), tras los partidos
+  workflow_dispatch: {}     # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lanzar actualización
+        run: |
+          curl -fsS --max-time 300 --retry 3 --retry-delay 20 \
+            -X POST "${{ secrets.PISCOUTING_API_URL }}/api/admin/refresh?wait=true" \
+            -H "X-Admin-Token: ${{ secrets.PISCOUTING_ADMIN_TOKEN }}"
