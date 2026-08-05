@@ -294,12 +294,14 @@ def owned_player_ids(session: Session, league_id: int) -> set[int]:
 
 # ============================ horario del mercado ============================
 def _next_slot(after: datetime, weekday: int, hour: int) -> datetime:
-    """Siguiente día/hora de la semana (hora peninsular) tras `after`, devuelto en UTC naive."""
+    """Siguiente apertura del mercado (hora peninsular) tras `after`, en UTC naive.
+
+    El mercado abre TODOS los días a la hora `hour` (el parámetro `weekday` se ignora,
+    se mantiene por compatibilidad de firma). Antes abría un solo día a la semana."""
     local = after.replace(tzinfo=timezone.utc).astimezone(TZ)
     cand = local.replace(hour=int(hour) % 24, minute=0, second=0, microsecond=0)
-    cand += timedelta(days=(int(weekday) - cand.weekday()) % 7)
     if cand <= local:
-        cand += timedelta(days=7)
+        cand += timedelta(days=1)
     return cand.astimezone(timezone.utc).replace(tzinfo=None)
 
 
@@ -435,7 +437,7 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
                   budget: float = 100.0, squad_size: int = 10, lineup_size: int = 5,
                   win_bonus: float = 4.0, start_jornada: Optional[int] = None,
                   market_weekday: int = 4, market_hour: int = 20,
-                  market_duration_h: int = 24, market_size: int = 10,
+                  market_duration_h: int = 22, market_size: int = 10,
                   initial_squad: int = 5, clause_factor: float = 2.0,
                   clause_lock_h: int = 24, open_now: bool = True) -> FantasyLeague:
     if competition not in FANTASY_COMPETITIONS:
@@ -463,7 +465,7 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
     session.add(league)
     session.commit()
     session.refresh(league)
-    _log(session, league.id, "info", f"🏆 Liga creada · mercado los {WEEKDAYS[league.market_weekday]} "
+    _log(session, league.id, "info", f"🏆 Liga creada · mercado todos los días "
                                      f"a las {league.market_hour:02d}:00 ({league.market_duration_h}h)")
     session.commit()
     join_league(session, league, owner_id, manager_name)
@@ -964,7 +966,7 @@ def league_out(league: FantasyLeague) -> dict:
         "win_bonus": league.win_bonus, "start_jornada": league.start_jornada,
         "current_jornada": league.current_jornada, "max_jornada": league.max_jornada,
         "market_weekday": league.market_weekday, "market_hour": league.market_hour,
-        "market_weekday_name": WEEKDAYS[league.market_weekday],
+        "market_weekday_name": "todos los días", "market_daily": True,
         "market_duration_h": league.market_duration_h, "market_size": league.market_size,
         "market_open": league.market_open, "market_round": league.market_round,
         "market_opens_at": league.market_opens_at.isoformat() + "Z" if league.market_opens_at else None,

@@ -275,6 +275,7 @@ def _user_out(session: Session, user: User) -> dict:
     team = session.get(Team, user.team_id) if user.team_id else None
     return {
         "id": user.id, "email": user.email, "name": user.name,
+        "is_admin": auth.is_admin(user),
         "team": {"team_id": team.id, "name": team.name, "logo": team.logo,
                  "competition": team.competition, "grupo": team.grupo} if team else None,
     }
@@ -301,6 +302,30 @@ def login(body: LoginBody, session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.email == email)).first()
     if not user or not auth.verify_password(body.password, user.password_hash):
         raise HTTPException(401, "Credenciales incorrectas")
+    return {"token": auth.create_token(user.id), "user": _user_out(session, user)}
+
+
+class GoogleBody(BaseModel):
+    id_token: str
+
+
+@app.post("/api/auth/google")
+def google_login(body: GoogleBody, session: Session = Depends(get_session)):
+    """Login/registro con Google. La web manda el id_token de Google Identity Services."""
+    import secrets as _secrets
+    from .config import GOOGLE_CLIENT_ID
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(503, "El login con Google no está configurado")
+    info = auth.verify_google_token(body.id_token)
+    if not info:
+        raise HTTPException(401, "No se pudo verificar la cuenta de Google")
+    user = session.exec(select(User).where(User.email == info["email"])).first()
+    if not user:
+        user = User(email=info["email"], name=info.get("name"),
+                    password_hash=auth.hash_password(_secrets.token_urlsafe(32)))
+        session.add(user)
+        session.commit()
+        session.refresh(user)
     return {"token": auth.create_token(user.id), "user": _user_out(session, user)}
 
 
@@ -557,7 +582,7 @@ def fantasy_bid_cancel(league_id: int, body: ListingBody,
 def fantasy_market_close(league_id: int, user: User = Depends(auth.get_current_user),
                          session: Session = Depends(get_session)):
     lg = _get_league(session, league_id)
-    if lg.owner_user_id != user.id:
+    if lg.owner_user_id != user.id and not auth.is_admin(user):
         raise HTTPException(403, "Solo el creador puede cerrar el mercado")
     try:
         return fantasy_mod.close_market_now(session, lg)
@@ -569,7 +594,7 @@ def fantasy_market_close(league_id: int, user: User = Depends(auth.get_current_u
 def fantasy_market_open(league_id: int, user: User = Depends(auth.get_current_user),
                         session: Session = Depends(get_session)):
     lg = _get_league(session, league_id)
-    if lg.owner_user_id != user.id:
+    if lg.owner_user_id != user.id and not auth.is_admin(user):
         raise HTTPException(403, "Solo el creador puede abrir el mercado")
     try:
         return fantasy_mod.open_market_now(session, lg)
@@ -603,7 +628,7 @@ def fantasy_lineup(league_id: int, body: LineupBody, user: User = Depends(auth.g
 def fantasy_advance(league_id: int, user: User = Depends(auth.get_current_user),
                     session: Session = Depends(get_session)):
     lg = _get_league(session, league_id)
-    if lg.owner_user_id != user.id:
+    if lg.owner_user_id != user.id and not auth.is_admin(user):
         raise HTTPException(403, "Solo el creador de la liga puede avanzar jornada")
     return fantasy_mod.advance(session, lg)
 

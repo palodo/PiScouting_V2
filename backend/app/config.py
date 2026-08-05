@@ -26,6 +26,17 @@ _load_dotenv()
 # Clave para firmar los JWT. En producción, definir PISCOUTING_SECRET en el entorno o en .env.
 SECRET_KEY = os.environ.get("PISCOUTING_SECRET", "dev-secret-piscouting-change-me")
 TOKEN_TTL_DAYS = int(os.environ.get("PISCOUTING_TOKEN_TTL_DAYS", "30"))
+
+# Cuentas con permisos de administrador (modo pruebas: forzar mercado, avanzar jornada...).
+# Configurable con PISCOUTING_ADMIN_EMAILS (coma-separado).
+ADMIN_EMAILS = {
+    e.strip().lower()
+    for e in os.environ.get("PISCOUTING_ADMIN_EMAILS", "pau.lopez.dominguez@gmail.com").split(",")
+    if e.strip()
+}
+
+# ID de cliente de Google OAuth (para el login con Google). Se define al configurarlo.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)

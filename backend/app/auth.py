@@ -8,12 +8,39 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
+import requests
 from fastapi import Depends, HTTPException, Header
 from sqlmodel import Session, select
 
-from .config import SECRET_KEY, TOKEN_TTL_DAYS
+from .config import SECRET_KEY, TOKEN_TTL_DAYS, ADMIN_EMAILS, GOOGLE_CLIENT_ID
 from .db import get_session
 from .models import User
+
+
+def is_admin(user: Optional[User]) -> bool:
+    return bool(user and user.email and user.email.lower() in ADMIN_EMAILS)
+
+
+def verify_google_token(id_token: str) -> Optional[dict]:
+    """Valida un ID token de Google y devuelve {email, name} si es válido para nuestra app."""
+    if not GOOGLE_CLIENT_ID or not id_token:
+        return None
+    try:
+        r = requests.get("https://oauth2.googleapis.com/tokeninfo",
+                         params={"id_token": id_token}, timeout=8)
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        if d.get("aud") != GOOGLE_CLIENT_ID:
+            return None
+        if str(d.get("email_verified")).lower() not in ("true", "1"):
+            return None
+        email = (d.get("email") or "").lower()
+        if not email:
+            return None
+        return {"email": email, "name": d.get("name")}
+    except Exception:
+        return None
 
 _PBKDF2_ROUNDS = 200_000
 
