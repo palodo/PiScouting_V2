@@ -27,8 +27,33 @@ if IS_SQLITE:
         cur.close()
 
 
+def _seed_sqlite_if_missing() -> None:
+    """En SQLite, si la BBDD no existe todavía (p.ej. primer arranque en el volumen de Fly),
+    la siembra descomprimiendo el dump del repo. Idempotente: si ya hay BBDD, no la toca
+    (preserva usuarios/ligas fantasy)."""
+    if not IS_SQLITE:
+        return
+    import gzip
+    import shutil
+    from pathlib import Path
+
+    from .config import DB_PATH, DB_SEED_GZ
+
+    db = Path(DB_PATH)
+    if db.exists() and db.stat().st_size > 0:
+        return
+    if not Path(DB_SEED_GZ).exists():
+        return  # sin dump: se creará una BBDD vacía
+    db.parent.mkdir(parents=True, exist_ok=True)
+    tmp = db.with_suffix(".seed.tmp")
+    with gzip.open(DB_SEED_GZ, "rb") as fi, open(tmp, "wb") as fo:
+        shutil.copyfileobj(fi, fo)
+    tmp.replace(db)
+
+
 def init_db() -> None:
-    """Crea las tablas si no existen. Importa models para registrarlos en metadata."""
+    """Siembra (si hace falta) y crea las tablas que no existan."""
+    _seed_sqlite_if_missing()
     from . import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)

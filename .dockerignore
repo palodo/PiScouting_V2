@@ -1,0 +1,17 @@
+# Mantener el contexto de build pequeño: solo entra el backend + 2 assets de data/.
+.git
+**/__pycache__
+*.pyc
+*.log
+
+# No entra el frontend/mobile (se despliegan aparte)
+frontend
+fantasy-web
+mobile
+_original
+
+# Datos pesados/regenerables (el .gz y la pista SÍ los copia el Dockerfile explícitamente)
+data/scouting.db
+data/scouting.db-*
+data/player_photos_cache
+data/team_logos_cache

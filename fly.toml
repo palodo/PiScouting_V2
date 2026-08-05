@@ -1,0 +1,38 @@
+# Despliegue del backend en Fly.io con SQLite en un volumen persistente.
+# La BBDD vive en la misma máquina que la app -> consultas en microsegundos (sin red).
+# La máquina se mantiene SIEMPRE encendida (sin cold start).
+#
+# app: el nombre es global en Fly; cámbialo si "piscouting-api" está cogido.
+app = "piscouting-api"
+primary_region = "mad"   # Madrid, cerca de los usuarios
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # SQLite en el volumen (NO definas DATABASE_URL: eso activaría Postgres).
+  PISCOUTING_DB_PATH = "/data/scouting.db"
+
+# Volumen persistente montado en /data. Créalo con:
+#   fly volumes create piscouting_data --region mad --size 1
+[[mounts]]
+  source = "piscouting_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = false   # siempre encendida = sin cold start
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "25s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"   # holgado para generar PDFs; puedes bajar a 512mb para ahorrar

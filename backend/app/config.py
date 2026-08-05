@@ -30,9 +30,12 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-# Base de datos. En local: SQLite (portable, sin servidor). En producción: define la variable
-# de entorno DATABASE_URL (p.ej. la de Neon/Postgres) y la app la usa automáticamente.
-DB_PATH = DATA_DIR / "scouting.db"
+# Base de datos. En local: SQLite (portable, sin servidor). En producción:
+#  - Postgres: define DATABASE_URL (p.ej. Neon) y la app la usa automáticamente, o
+#  - SQLite en un volumen (Fly.io): define PISCOUTING_DB_PATH=/data/scouting.db (el volumen)
+#    y NO definas DATABASE_URL; la app siembra el volumen desde el dump la primera vez.
+DB_PATH = Path(os.environ.get("PISCOUTING_DB_PATH") or (DATA_DIR / "scouting.db"))
+DB_SEED_GZ = DATA_DIR / "scouting.db.gz"  # dump que viaja en el repo/imagen
 
 
 def _resolve_db_url() -> str:
