@@ -1,81 +1,266 @@
-import { useEffect, useState } from "react";
+/* ============================================================================
+   Primitivas de interfaz de PiFantasy: marca, pista, fotos, hojas inferiores,
+   estados vacíos y utilidades de formato. Todo el color sale de index.css.
+   ========================================================================== */
+import { useEffect, useState, type ReactNode } from "react";
+import { photo } from "./api";
+import { IconClose, IconTrendDown, IconTrendUp, IconFlat } from "./icons";
 
-/** Balón de baloncesto (marca de la app). */
-export function Ball({ size = 64, className }: { size?: number; className?: string }) {
-  const r = size / 2 - 1, c = size / 2;
+/* ------------------------------------------------------------------- marca */
+/** Balón monoline: la marca sin el aspecto de emoji del balón anterior. */
+export function Ball({ size = 34 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={"ball " + (className ?? "")}>
-      <defs>
-        <radialGradient id="bg1" cx="0.35" cy="0.3" r="0.9">
-          <stop offset="0" stopColor="#ff8a52" />
-          <stop offset="0.6" stopColor="#ff6a2b" />
-          <stop offset="1" stopColor="#d9410f" />
-        </radialGradient>
-      </defs>
-      <circle cx={c} cy={c} r={r} fill="url(#bg1)" />
-      <g fill="none" stroke="#8f2a08" strokeWidth={size * 0.055}>
-        <line x1={c - r} y1={c} x2={c + r} y2={c} />
-        <line x1={c} y1={c - r} x2={c} y2={c + r} />
-        <path d={`M ${c - r * 0.98} ${c - r * 0.22} Q ${c} ${c + r * 0.3} ${c + r * 0.98} ${c - r * 0.22}`} />
-        <path d={`M ${c - r * 0.98} ${c + r * 0.22} Q ${c} ${c - r * 0.3} ${c + r * 0.98} ${c + r * 0.22}`} />
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <circle cx="20" cy="20" r="18" fill="var(--accent)" />
+      <g stroke="var(--accent-ink)" strokeWidth="2" fill="none" strokeLinecap="round">
+        <path d="M20 2v36M2 20h36" />
+        <path d="M20 2Q-1.6 20 20 38" />
+        <path d="M20 2Q41.6 20 20 38" />
       </g>
-      <ellipse cx={c - r * 0.32} cy={c - r * 0.36} rx={r * 0.26} ry={r * 0.17} fill="#fff" opacity={0.28} />
     </svg>
   );
 }
 
-/** Media pista para colocar la formación. */
-export function HalfCourt() {
-  const W = 400, H = 300, cx = W / 2, hoopY = 38, keyW = 118, keyH = 124;
-  const keyX = cx - keyW / 2;
+export function Brand({ size = 34, name = true }: { size?: number; name?: boolean }) {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} xmlns="http://www.w3.org/2000/svg">
+    <div className="brand">
+      <Ball size={size} />
+      {name && <span className="brand__name" style={{ fontSize: size * 0.62 }}>Pi<em>Fantasy</em></span>}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------- pista */
+/** Media pista sobria para colocar la formación. Los colores vienen de tokens. */
+export function HalfCourt() {
+  const W = 400, H = 300, cx = W / 2, hoop = 40, keyW = 112, keyH = 122;
+  const kx = cx - keyW / 2;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <defs>
-        <linearGradient id="ct" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#1a2740" />
-          <stop offset="1" stopColor="#101a2e" />
+        <linearGradient id="pfcourt" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="var(--court-bg)" />
+          <stop offset="1" stopColor="var(--court-bg-2)" />
         </linearGradient>
       </defs>
-      <rect x="5" y="5" width={W - 10} height={H - 10} rx="16" fill="url(#ct)" stroke="rgba(255,255,255,0.08)" strokeWidth="1.5" />
-      <g fill="none" stroke="rgba(255,176,32,0.42)" strokeWidth="2">
-        <rect x={keyX} y={hoopY} width={keyW} height={keyH} />
-        <path d={`M ${keyX} ${hoopY + keyH} A ${keyW / 2} ${keyW / 2} 0 0 0 ${keyX + keyW} ${hoopY + keyH}`} />
-        <line x1={cx - 28} y1={hoopY} x2={cx + 28} y2={hoopY} strokeWidth="3" />
-        <circle cx={cx} cy={hoopY + 11} r="8.5" strokeWidth="2.4" />
-        <path d={`M 38 ${hoopY} L 38 ${hoopY + 54} A 148 148 0 0 0 ${W - 38} ${hoopY + 54} L ${W - 38} ${hoopY}`} />
-        <path d={`M ${cx - 44} ${H - 5} A 44 44 0 0 1 ${cx + 44} ${H - 5}`} />
+      <rect x="0" y="0" width={W} height={H} rx="18" fill="url(#pfcourt)" />
+      <g fill="none" stroke="var(--court-line)" strokeWidth="1.4" strokeLinecap="round">
+        {/* zona */}
+        <rect x={kx} y={hoop} width={keyW} height={keyH} />
+        <path d={`M ${kx} ${hoop + keyH} A ${keyW / 2} ${keyW / 2} 0 0 0 ${kx + keyW} ${hoop + keyH}`} />
+        <path d={`M ${kx} ${hoop + keyH} A ${keyW / 2} ${keyW / 2} 0 0 1 ${kx + keyW} ${hoop + keyH}`}
+          strokeDasharray="5 6" opacity="0.55" />
+        {/* canasta */}
+        <line x1={cx - 26} y1={hoop} x2={cx + 26} y2={hoop} strokeWidth="2.6" />
+        <circle cx={cx} cy={hoop + 10} r="7.5" strokeWidth="1.8" />
+        {/* triple */}
+        <path d={`M 34 ${hoop} L 34 ${hoop + 46} A 152 152 0 0 0 ${W - 34} ${hoop + 46} L ${W - 34} ${hoop}`} />
+        {/* medio campo */}
+        <line x1="0" y1={H - 26} x2={W} y2={H - 26} opacity="0.5" />
+        <path d={`M ${cx - 40} ${H - 26} A 40 40 0 0 1 ${cx + 40} ${H - 26}`} opacity="0.7" />
       </g>
+      <rect x="0.7" y="0.7" width={W - 1.4} height={H - 1.4} rx="18" fill="none"
+        stroke="var(--border)" strokeWidth="1.4" />
     </svg>
   );
 }
 
-/** Cuenta atrás viva hasta una fecha ISO. */
-export function useCountdown(iso: string | null) {
-  const [now, setNow] = useState(Date.now());
+/* -------------------------------------------------------------------- fotos */
+/* La FEB manda los nombres en mayúsculas ("A. ABELLO GIRVÉS"); en caja de título
+   se leen mucho mejor y la interfaz deja de parecer que grita. */
+const PARTICLES = new Set(["de", "del", "la", "las", "los", "van", "der", "den", "da", "dos", "y", "i"]);
+export function prettyName(name?: string | null) {
+  const raw = (name ?? "").includes(",") ? (name ?? "").split(",")[0] : (name ?? "");
+  return raw.trim().toLowerCase().split(/\s+/).filter(Boolean).map((w, i) => {
+    if (w.endsWith(".") || w.length === 1) return w.toUpperCase();
+    if (i > 0 && PARTICLES.has(w)) return w;
+    return w.replace(/(^|[-'])(\p{L})/gu, (_, s, c) => s + c.toUpperCase());
+  }).join(" ");
+}
+
+/** Igual para los equipos, pero respetando siglas con punto ("C.B. GETAFE"). */
+export function prettyTeam(team?: string | null) {
+  return (team ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean).map((w, i) => {
+    if (w.includes(".")) return w.toUpperCase();
+    if (i > 0 && PARTICLES.has(w)) return w;
+    return w.replace(/(^|[-'])(\p{L})/gu, (_, s, c) => s + c.toUpperCase());
+  }).join(" ");
+}
+
+export function initials(name?: string | null) {
+  const n = (name ?? "").replace(/,/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!n.length) return "—";
+  return (n[0][0] + (n[1]?.[0] ?? "")).toUpperCase();
+}
+
+/** Foto del jugador con reserva de iniciales (la FEB no tiene foto de todos). */
+export function Photo({ code, name, variant }: {
+  code?: string | null; name?: string | null; variant?: "lg" | "sm" | "tok";
+}) {
+  const [bad, setBad] = useState(false);
+  useEffect(() => setBad(false), [code]);
+  return (
+    <div className={"photo" + (variant ? ` photo--${variant}` : "")}>
+      <span className="photo__ini">{initials(name)}</span>
+      {code && !bad && <img src={photo(code)} alt="" loading="lazy" onError={() => setBad(true)} />}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- tendencia */
+export function Trend({ v, suffix }: { v: number; suffix?: string }) {
+  if (v > 0.4) return <span className="trend trend--up"><IconTrendUp size={13} strokeWidth={2.2} />{v.toFixed(1)}{suffix}</span>;
+  if (v < -0.4) return <span className="trend trend--down"><IconTrendDown size={13} strokeWidth={2.2} />{Math.abs(v).toFixed(1)}{suffix}</span>;
+  return <span className="trend trend--flat"><IconFlat size={13} strokeWidth={2.2} /></span>;
+}
+
+/* ------------------------------------------------------------------- hojas */
+export function Sheet({ children, onClose, title }: {
+  children: ReactNode; onClose: () => void; title?: string;
+}) {
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", esc);
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", esc); document.body.style.overflow = ""; };
+  }, [onClose]);
+  return (
+    <div className="overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet__grab" />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function SheetClose({ onClose }: { onClose: () => void }) {
+  return <button className="iconbtn" onClick={onClose} aria-label="Cerrar"><IconClose size={20} /></button>;
+}
+
+/* ------------------------------------------------------------- estructurales */
+export function Section({ children, right }: { children: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="sect">
+      <span>{children}</span>
+      <span className="sect__line" />
+      {right && <span className="sect__n">{right}</span>}
+    </div>
+  );
+}
+
+export function Segmented<T extends string>({ value, onChange, options }: {
+  value: T; onChange: (v: T) => void; options: { v: T; label: string }[];
+}) {
+  return (
+    <div className="seg" role="tablist">
+      {options.map((o) => (
+        <button key={o.v} role="tab" aria-selected={value === o.v}
+          className={"seg__btn" + (value === o.v ? " is-on" : "")}
+          onClick={() => onChange(o.v)}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+export function Empty({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
+  return (
+    <div className="empty">
+      {icon && <span className="empty__ico">{icon}</span>}
+      <b>{title}</b>
+      {children && <span>{children}</span>}
+    </div>
+  );
+}
+
+export function Loading({ label = "Cargando" }: { label?: string }) {
+  return <div className="loading"><span className="spinner" />{label}…</div>;
+}
+
+export function SkeletonList({ n = 4 }: { n?: number }) {
+  return <>{Array.from({ length: n }, (_, i) => <div key={i} className="skel skel--row" />)}</>;
+}
+
+/* ------------------------------------------------------------------- tiempo */
+/** Reloj compartido: un solo intervalo por componente que lo use. */
+export function useNow(ms = 1000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
     return () => clearInterval(t);
-  }, []);
+  }, [ms]);
+  return now;
+}
+
+/** Cuenta atrás hasta una fecha ISO (formato hh:mm:ss, con días si toca). */
+export function useCountdown(iso: string | null | undefined) {
+  const now = useNow();
   if (!iso) return null;
-  const ms = new Date(iso).getTime() - now;
+  const left = new Date(iso).getTime() - now;
+  return fmtLeft(left);
+}
+
+export function fmtLeft(ms: number) {
   if (ms <= 0) return "00:00:00";
+  const p = (n: number) => String(n).padStart(2, "0");
   const d = Math.floor(ms / 86400000);
   const h = Math.floor(ms / 3600000) % 24;
   const m = Math.floor(ms / 60000) % 60;
   const s = Math.floor(ms / 1000) % 60;
-  const p = (n: number) => String(n).padStart(2, "0");
-  return d > 0 ? `${d}d ${p(h)}:${p(m)}:${p(s)}` : `${p(h)}:${p(m)}:${p(s)}`;
+  return d > 0 ? `${d}d ${p(h)}:${p(m)}` : `${p(h)}:${p(m)}:${p(s)}`;
 }
 
-export function Trend({ v }: { v: number }) {
-  if (v > 0.4) return <span className="trend up">▲ {v.toFixed(1)}</span>;
-  if (v < -0.4) return <span className="trend down">▼ {Math.abs(v).toFixed(1)}</span>;
-  return <span className="trend muted">◆</span>;
-}
+const DAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
-export function fmtWhen(iso: string | null) {
+export function fmtWhen(iso: string | null | undefined) {
   if (!iso) return "—";
   const d = new Date(iso);
-  const days = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
-  return `${days[d.getDay()]} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const hoy = new Date();
+  const same = d.toDateString() === hoy.toDateString();
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return same ? `hoy a las ${hm}` : `${DAYS[d.getDay()]} a las ${hm}`;
+}
+
+export function relTime(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.round(diff / 60000);
+  if (m < 1) return "ahora mismo";
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.round(h / 24);
+  if (d < 7) return `hace ${d} ${d === 1 ? "día" : "días"}`;
+  return new Date(iso).toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
+}
+
+/** El backend mete emojis en el texto del feed; aquí los quitamos y ponemos icono. */
+const EMOJI = new RegExp("[\\u{1F000}-\\u{1FAFF}\\u{2190}-\\u{2BFF}\\u{2600}-\\u{27BF}\\u{FE00}-\\u{FE0F}]", "gu");
+export const stripEmoji = (t: string) => (t ?? "").replace(EMOJI, "").replace(/\s{2,}/g, " ").trim();
+
+export const M = (v: number | null | undefined) => `${v ?? 0} M€`;
+
+/* -------------------------------------------------------------------- tema */
+export type ThemeMode = "auto" | "dark" | "light";
+const THEME_KEY = "pf_theme";
+
+export function readTheme(): ThemeMode {
+  const v = localStorage.getItem(THEME_KEY);
+  return v === "dark" || v === "light" ? v : "auto";
+}
+
+export function applyTheme(mode: ThemeMode) {
+  const el = document.documentElement;
+  if (mode === "auto") el.removeAttribute("data-theme");
+  else el.setAttribute("data-theme", mode);
+  localStorage.setItem(THEME_KEY, mode);
+  const dark = mode === "dark"
+    || (mode === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", dark ? "#080c14" : "#f3f5f9");
+}
+
+export function useThemeMode(): [ThemeMode, (m: ThemeMode) => void] {
+  const [mode, setMode] = useState<ThemeMode>(readTheme);
+  useEffect(() => { applyTheme(mode); }, [mode]);
+  return [mode, setMode];
 }

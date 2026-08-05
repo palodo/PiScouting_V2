@@ -236,9 +236,21 @@ _PRICED_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
 PRICED_TTL = 300.0  # segundos
 
 
+def _fp(game: dict, win_bonus: float) -> float:
+    """Puntos fantasy de UN partido: valoración + bonus si su equipo ganó."""
+    return game["val"] + (win_bonus if game["won"] else 0.0)
+
+
 def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
-    """Todos los jugadores de la conferencia con precio actual y stats."""
-    key = (league.season, league.competition, league.grupo, league.current_jornada)
+    """Todos los jugadores de la conferencia con precio actual y stats.
+
+    `fp_avg`/`fp_form` son los PUNTOS FANTASY (lo que de verdad suma en la liga:
+    valoración + win_bonus si su equipo ganó), y por eso el `win_bonus` entra en la
+    clave de caché: dos ligas de la misma conferencia pueden premiar la victoria
+    distinto y no deben compartir estos números.
+    """
+    key = (league.season, league.competition, league.grupo, league.current_jornada,
+           league.win_bonus)
     hit = _PRICED_CACHE.get(key)
     if hit is not None and time.monotonic() - hit[0] < PRICED_TTL:
         # copia: quien llama trabaja con estos dicts y no debe poder tocar la caché
@@ -273,6 +285,11 @@ def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
             "val_avg": round(sum(g["val"] for g in played) / n, 1),
             "pm_avg": round(sum(g["pm"] for g in played) / n, 1),
             "form": round(sum(g["val"] for g in played[-RECENT_N:]) / len(played[-RECENT_N:]), 1),
+            # puntos fantasy: lo mismo que suma jornada_points(), pero en media
+            "fp_avg": round(sum(_fp(g, league.win_bonus) for g in played) / n, 1),
+            "fp_form": round(sum(_fp(g, league.win_bonus) for g in played[-RECENT_N:])
+                             / len(played[-RECENT_N:]), 1),
+            "wins": sum(1 for g in played if g["won"]),
         })
     rows.sort(key=lambda r: r["price"], reverse=True)
     _PRICED_CACHE[key] = (time.monotonic(), rows)
@@ -420,7 +437,7 @@ def jornada_points(session: Session, league: FantasyLeague, jornada: int) -> dic
     for pid, d in conf.items():
         games = [g for g in d["games"] if g["j"] == jornada]
         if games:
-            out[pid] = round(sum(g["val"] + (league.win_bonus if g["won"] else 0.0) for g in games), 1)
+            out[pid] = round(sum(_fp(g, league.win_bonus) for g in games), 1)
     return out
 
 
@@ -550,6 +567,8 @@ def market(session: Session, league: FantasyLeague, member: Optional[FantasyMemb
             "name": d.get("name", "?"), "feb_code": d.get("feb_code"), "team": d.get("team"),
             "price": lst.price, "val_avg": d.get("val_avg", 0), "pm_avg": d.get("pm_avg", 0),
             "form": d.get("form", 0), "bids": n_bids,
+            "fp_avg": d.get("fp_avg", 0), "fp_form": d.get("fp_form", 0),
+            "games": d.get("games", 0),
             "my_bid": mine.amount if mine else None,
         })
     rows.sort(key=lambda r: r["price"], reverse=True)
@@ -756,6 +775,9 @@ def player_detail(session: Session, league: FantasyLeague, player_id: int) -> di
         "player_id": player_id, "name": pl.name, "feb_code": pl.feb_code, "team": team_name,
         "price": info.get("price"), "form": info.get("form"), "games": len(rows),
         "wins": wins, "losses": len(rows) - wins,
+        # puntos fantasy (lo que suma en la liga) y el bonus con el que se calculan
+        "fp_avg": info.get("fp_avg", 0), "fp_form": info.get("fp_form", 0),
+        "win_bonus": league.win_bonus,
         "avg": {
             "min": round(agg["seconds"] / n / 60, 1), "pts": round(agg["pts"] / n, 1),
             "reb": round(agg["treb"] / n, 1), "oreb": round(agg["oreb"] / n, 1),
@@ -793,7 +815,7 @@ def member_squad(session: Session, league: FantasyLeague, member_id: int) -> lis
         out.append({
             "player_id": p.player_id, "name": d.get("name", "?"), "feb_code": d.get("feb_code"),
             "team": d.get("team"), "price": prices.get(p.player_id, p.buy_price),
-            "val_avg": d.get("val_avg", 0), "starter": p.starter,
+            "val_avg": d.get("val_avg", 0), "fp_avg": d.get("fp_avg", 0), "starter": p.starter,
             "clause": p.clause, "clause_locked": locked,
             "clause_lock_mins": int((p.clause_locked_until - now).total_seconds() // 60) if locked else 0,
         })
@@ -941,6 +963,8 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
             "team": d.get("team"), "buy_price": p.buy_price, "price": cur,
             "delta": round(cur - p.buy_price, 1), "starter": p.starter,
             "val_avg": d.get("val_avg", 0), "form": d.get("form", 0),
+            "fp_avg": d.get("fp_avg", 0), "fp_form": d.get("fp_form", 0),
+            "games": d.get("games", 0),
             # fichó por otro equipo: sigue en tu plantilla pero ya no puntúa
             "departed": bool(d.get("departed")),
             "clause": p.clause, "clause_locked": locked,
