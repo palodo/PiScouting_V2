@@ -13,7 +13,7 @@ from sqlmodel import Session, select, func
 from .db import engine, init_db, get_session
 from .config import DEFAULT_SEASON
 from .models import Team, Player, Match, PlayerMatchStat, User, FantasyLeague
-from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod
+from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache
 from .ingest.crawl import ingest_team
 
 app = FastAPI(title="PiScouting API", version="0.1.0")
@@ -31,9 +31,28 @@ app.add_middleware(
 )
 
 
+def _warm_cache() -> None:
+    """Precalienta la clasificación de cada grupo (lo más consultado) en segundo plano,
+    para que el primer visitante ya la tenga instantánea aunque la caché esté vacía."""
+    try:
+        with Session(engine) as s:
+            combos = set()
+            for t in s.exec(select(Team.competition, Team.grupo, Team.season)).all():
+                combos.add((t[0], t[1], t[2]))
+            for competition, grupo, season in combos:
+                try:
+                    analytics.team_rankings(s, competition, grupo, season)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+    import threading
+    threading.Thread(target=_warm_cache, daemon=True).start()
 
 
 @app.get("/api/health")
@@ -45,8 +64,8 @@ def health(session: Session = Depends(get_session)):
     return {"status": "ok", "counts": counts}
 
 
-@app.get("/api/meta/competitions")
-def competitions(season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
+@cache.cached
+def _competitions_data(session: Session, season: str) -> dict:
     teams = session.exec(select(Team).where(Team.season == season)).all()
     out: dict[str, dict] = {}
     for t in teams:
@@ -54,17 +73,19 @@ def competitions(season: str = DEFAULT_SEASON, session: Session = Depends(get_se
         c["teams"] += 1
         if t.grupo:
             c["grupos"].add(t.grupo)
-    result = []
-    for c in out.values():
-        result.append({"competition": c["competition"], "teams": c["teams"],
-                       "grupos": sorted(c["grupos"])})
+    result = [{"competition": c["competition"], "teams": c["teams"], "grupos": sorted(c["grupos"])}
+              for c in out.values()]
     result.sort(key=lambda x: x["competition"])
     return {"season": season, "competitions": result}
 
 
-@app.get("/api/teams")
-def list_teams(competition: Optional[str] = None, grupo: Optional[str] = None,
-               season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
+@app.get("/api/meta/competitions")
+def competitions(season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
+    return _competitions_data(session, season)
+
+
+@cache.cached
+def _teams_data(session: Session, competition: Optional[str], grupo: Optional[str], season: str) -> list:
     q = select(Team).where(Team.season == season)
     if competition:
         q = q.where(Team.competition == competition)
@@ -73,6 +94,12 @@ def list_teams(competition: Optional[str] = None, grupo: Optional[str] = None,
     teams = session.exec(q.order_by(Team.name)).all()
     return [{"team_id": t.id, "name": t.name, "logo": t.logo,
              "competition": t.competition, "grupo": t.grupo} for t in teams]
+
+
+@app.get("/api/teams")
+def list_teams(competition: Optional[str] = None, grupo: Optional[str] = None,
+               season: str = DEFAULT_SEASON, session: Session = Depends(get_session)):
+    return _teams_data(session, competition, grupo, season)
 
 
 @app.get("/api/teams/{team_id}")
@@ -281,7 +308,9 @@ def scout_prepare(team_id: int, limit: int = 20, session: Session = Depends(get_
     """Ingiere bajo demanda el detalle de los partidos del equipo (bounded)."""
     if not session.get(Team, team_id):
         raise HTTPException(404, "Equipo no encontrado")
-    return ingest_team(session, team_id, limit=limit)
+    result = ingest_team(session, team_id, limit=limit)
+    cache.clear()  # el detalle nuevo cambia los agregados: invalidar caché
+    return result
 
 
 @app.get("/api/scout/{team_id}/pdf")

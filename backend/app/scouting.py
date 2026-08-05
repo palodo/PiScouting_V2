@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from .models import Team, Match, PlayerMatchStat
 from . import analytics
+from .cache import cached
 
 
 def _opponent(session: Session, m: Match, team_id: int) -> dict:
@@ -33,6 +34,7 @@ def _opponent(session: Session, m: Match, team_id: int) -> dict:
     }
 
 
+@cached
 def schedule(session: Session, team_id: int) -> list[dict]:
     matches = session.exec(
         select(Match).where((Match.home_team_id == team_id) | (Match.away_team_id == team_id))
@@ -98,6 +100,7 @@ def dashboard(session: Session, team_id: int, sim_jornada: Optional[int] = None)
     }
 
 
+@cached
 def advanced(session: Session, team_id: int) -> dict:
     """Métricas avanzadas de equipo a partir del boxscore acumulado (partidos con detalle)."""
     stats = session.exec(select(PlayerMatchStat).where(PlayerMatchStat.team_id == team_id)).all()
@@ -124,6 +127,7 @@ def advanced(session: Session, team_id: int) -> dict:
     }
 
 
+@cached
 def report(session: Session, team_id: int) -> dict:
     team = session.get(Team, team_id)
     if not team:

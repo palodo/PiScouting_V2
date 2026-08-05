@@ -11,6 +11,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from .models import Team, Player, Match, PlayerMatchStat, Shot
+from .cache import cached
 
 
 def _pct(made: int, att: int) -> float:
@@ -21,6 +22,7 @@ def _safe_div(a: float, b: float) -> float:
     return round(a / b, 1) if b else 0.0
 
 
+@cached
 def team_record(session: Session, team_id: int, up_to_jornada: Optional[int] = None) -> dict:
     q = select(Match).where(
         (Match.home_team_id == team_id) | (Match.away_team_id == team_id),
@@ -58,6 +60,7 @@ def team_record(session: Session, team_id: int, up_to_jornada: Optional[int] = N
     }
 
 
+@cached
 def team_shooting(session: Session, team_id: int) -> dict:
     stats = session.exec(select(PlayerMatchStat).where(PlayerMatchStat.team_id == team_id)).all()
     agg = {k: 0 for k in ("t2m", "t2a", "t3m", "t3a", "tlm", "tla", "oreb", "dreb",
@@ -75,6 +78,7 @@ def team_shooting(session: Session, team_id: int) -> dict:
     }
 
 
+@cached
 def team_roster(session: Session, team_id: int) -> list[dict]:
     rows = session.exec(
         select(PlayerMatchStat, Player)
@@ -119,6 +123,7 @@ def team_roster(session: Session, team_id: int) -> list[dict]:
     return out
 
 
+@cached
 def player_summary(session: Session, player_id: int) -> dict:
     rows = session.exec(
         select(PlayerMatchStat, Match)
@@ -163,20 +168,53 @@ def player_summary(session: Session, player_id: int) -> dict:
     }
 
 
+@cached
 def team_rankings(session: Session, competition: str, grupo: Optional[str], season: str) -> list[dict]:
-    q = select(Team).where(Team.competition == competition, Team.season == season)
+    """Clasificación del grupo en 2 consultas (equipos + partidos), agregando en Python.
+
+    Antes hacía 1 consulta por equipo (N+1), lo que sobre una BBDD remota se traducía en
+    varios segundos por petición."""
+    tq = select(Team).where(Team.competition == competition, Team.season == season)
     if grupo:
-        q = q.where(Team.grupo == grupo)
-    teams = session.exec(q).all()
+        tq = tq.where(Team.grupo == grupo)
+    teams = session.exec(tq).all()
+    if not teams:
+        return []
+
+    mq = select(Match).where(
+        Match.competition == competition, Match.season == season,
+        Match.status.in_(("played", "ingested")),
+    )
+    if grupo:
+        mq = mq.where(Match.grupo == grupo)
+    matches = session.exec(mq).all()
+
+    agg = {t.id: {"wins": 0, "losses": 0, "pf": 0, "pa": 0, "games": 0} for t in teams}
+    for m in matches:
+        if m.home_score is None or m.away_score is None:
+            continue
+        for tid, my, opp in ((m.home_team_id, m.home_score, m.away_score),
+                             (m.away_team_id, m.away_score, m.home_score)):
+            a = agg.get(tid)
+            if a is None:
+                continue
+            a["pf"] += my
+            a["pa"] += opp
+            a["games"] += 1
+            a["wins" if my > opp else "losses"] += 1
+
     table = []
     for t in teams:
-        rec = team_record(session, t.id)
-        if rec["games"] == 0:
+        a = agg[t.id]
+        g = a["games"]
+        if g == 0:
             continue
         table.append({
             "team_id": t.id, "name": t.name, "logo": t.logo, "grupo": t.grupo,
-            **{k: rec[k] for k in ("games", "wins", "losses", "win_pct",
-                                   "pts_for_avg", "pts_against_avg", "diff_avg")},
+            "games": g, "wins": a["wins"], "losses": a["losses"],
+            "win_pct": _pct(a["wins"], g),
+            "pts_for_avg": _safe_div(a["pf"], g), "pts_against_avg": _safe_div(a["pa"], g),
+            "diff_avg": _safe_div(a["pf"] - a["pa"], g),
         })
     table.sort(key=lambda x: (x["wins"], x["diff_avg"]), reverse=True)
     for i, row in enumerate(table, 1):
@@ -184,6 +222,7 @@ def team_rankings(session: Session, competition: str, grupo: Optional[str], seas
     return table
 
 
+@cached
 def player_leaders(session: Session, competition: str, season: str,
                    stat: str = "pts", limit: int = 25) -> list[dict]:
     rows = session.exec(

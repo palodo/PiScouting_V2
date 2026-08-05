@@ -6,6 +6,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from .models import Shot, PlayerMatchStat, Player
+from .cache import cached
 
 
 def to_halfcourt(x: float, y: float) -> tuple[float, float]:
@@ -31,16 +32,19 @@ def serialize_shot(s: Shot) -> dict:
     }
 
 
+@cached
 def shots_for_team(session: Session, team_id: int) -> list[dict]:
     rows = session.exec(select(Shot).where(Shot.team_id == team_id)).all()
     return [serialize_shot(s) for s in rows]
 
 
+@cached
 def shots_for_player(session: Session, player_id: int) -> list[dict]:
     rows = session.exec(select(Shot).where(Shot.player_id == player_id)).all()
     return [serialize_shot(s) for s in rows]
 
 
+@cached
 def shots_for_match(session: Session, match_id: int, team_id: Optional[int] = None) -> list[dict]:
     q = select(Shot).where(Shot.match_id == match_id)
     if team_id is not None:
