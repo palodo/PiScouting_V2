@@ -18,7 +18,7 @@ services:
       - "8080"
 
   caddy:
-    build: ./frontend   # construye la web y la sirve; hace de proxy de /api al backend
+    build: ./fantasy-web   # construye la web del FANTASY y la sirve; proxy de /api al backend
     restart: unless-stopped
     ports:
       - "80:80"
