@@ -18,7 +18,7 @@ services:
       - "8080"
 
   caddy:
-    image: caddy:2
+    build: ./frontend   # construye la web y la sirve; hace de proxy de /api al backend
     restart: unless-stopped
     ports:
       - "80:80"
@@ -26,7 +26,6 @@ services:
     environment:
       - DOMAIN=${DOMAIN}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

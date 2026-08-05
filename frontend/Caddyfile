@@ -1,0 +1,13 @@
+# Caddy sirve la web (estática) y hace de proxy de /api hacia el backend.
+# Mismo origen para web y API -> sin CORS. DOMAIN=:80 para HTTP por IP; un dominio real = HTTPS auto.
+{$DOMAIN} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy app:8080
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
