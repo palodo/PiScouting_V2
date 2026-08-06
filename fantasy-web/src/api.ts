@@ -55,7 +55,9 @@ export const api = {
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),
 
   clauses: (id: number) => get(`/fantasy/leagues/${id}/clauses`),
-  player: (id: number, playerId: number) => get(`/fantasy/leagues/${id}/player/${playerId}`),
+  // con `jornada` la ficha trae además su partido de ese día
+  player: (id: number, playerId: number, jornada?: number | null) =>
+    get(`/fantasy/leagues/${id}/player/${playerId}${jornada ? `?jornada=${jornada}` : ""}`),
   memberSquad: (id: number, memberId: number) => get(`/fantasy/leagues/${id}/members/${memberId}/squad`),
   payClause: (id: number, player_id: number) => post(`/fantasy/leagues/${id}/clause`, { player_id }),
   raiseClause: (id: number, player_id: number, new_clause: number) =>

@@ -977,7 +977,44 @@ def raise_clause(session: Session, league: FantasyLeague, member: FantasyMember,
 
 
 # ============================ ficha del jugador ============================
-def player_detail(session: Session, league: FantasyLeague, player_id: int) -> dict:
+def player_jornada_line(session: Session, league: FantasyLeague, player_id: int,
+                        jornada: int) -> Optional[dict]:
+    """El partido de ese jugador en esa jornada, línea de acta completa.
+
+    Es lo que uno quiere ver al mirar atrás una jornada: no su media de la temporada, sino
+    qué hizo ESE día y de dónde salen sus puntos fantasy.
+    """
+    rows = session.exec(
+        select(PlayerMatchStat, Match, Team)
+        .join(Match, Match.id == PlayerMatchStat.match_id)
+        .join(Team, Team.id == PlayerMatchStat.team_id)
+        .where(PlayerMatchStat.player_id == player_id, Team.season == league.season,
+               Match.jornada_num == jornada)
+    ).all()
+    if not rows:
+        return None
+    st, m, team = rows[0]
+    rival = session.get(Team, m.away_team_id if st.is_home else m.home_team_id)
+    mine = m.home_score if st.is_home else m.away_score
+    opp = m.away_score if st.is_home else m.home_score
+    won = mine is not None and opp is not None and mine > opp
+    return {
+        "jornada": jornada, "team": team.name, "rival": rival.name if rival else None,
+        "home": st.is_home, "score": f"{mine}-{opp}" if mine is not None else None,
+        "won": won, "starter": st.starter,
+        "min": round(st.seconds / 60), "pts": st.pts, "val": st.val, "pm": st.plus_minus,
+        "t2": f"{st.t2m}/{st.t2a}", "t3": f"{st.t3m}/{st.t3a}", "tl": f"{st.tlm}/{st.tla}",
+        "reb": st.treb, "oreb": st.oreb, "dreb": st.dreb, "ast": st.ast, "stl": st.stl,
+        "blk": st.blk_for, "tov": st.tov, "pf": st.pf_committed,
+        # el desglose de los puntos fantasy de esa jornada
+        "win_bonus": league.win_bonus if won else 0.0,
+        "points": round(st.val + (league.win_bonus if won else 0.0), 1),
+    }
+
+
+
+def player_detail(session: Session, league: FantasyLeague, player_id: int,
+                  jornada: Optional[int] = None) -> dict:
     """Estadísticas del jugador + su situación en la liga (dueño, cláusula).
 
     Solo cuentan las jornadas ya disputadas EN LA LIGA (`current_jornada`): la temporada
@@ -1049,6 +1086,8 @@ def player_detail(session: Session, league: FantasyLeague, player_id: int) -> di
         "owner_member_id": owner.id if owner else None,
         "clause": pick.clause if pick else None,
         "clause_locked": locked, "clause_lock_mins": lock_mins,
+        # si se abre la ficha desde una jornada concreta, su partido de ese día
+        "game": player_jornada_line(session, league, player_id, jornada) if jornada else None,
     }
 
 

@@ -448,6 +448,8 @@ input, select, textarea { font-family: inherit; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tok__sub { font-size: var(--fs-2xs); font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.tok--tap { cursor: pointer; }
+.tok--tap:active .photo--tok { transform: scale(0.94); }
 .tok--empty .photo--tok { border-style: dashed; border-color: var(--text-3); opacity: 0.6; }
 .tok--empty .tok__tag { color: var(--text-3); }
 .tok--gone .photo--tok { border-color: var(--neg); filter: grayscale(1); opacity: 0.75; }
@@ -810,6 +812,27 @@ input, select, textarea { font-family: inherit; }
   font-size: var(--fs-2xs); color: var(--text-3); text-transform: uppercase;
   letter-spacing: 0.07em; font-weight: 700;
 }
+
+/* El partido de una jornada concreta, arriba del todo en la ficha del jugador. */
+.game {
+  margin-top: 14px; padding: 13px 14px 11px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--border-2);
+}
+.game__top { display: flex; align-items: center; gap: 12px; margin-bottom: 11px; }
+.game__k {
+  display: block; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.game__vs { font-family: var(--display); font-size: var(--fs-lg); font-weight: 800; }
+.game__vs b { font-variant-numeric: tabular-nums; }
+.game__vs .is-win { color: var(--pos); }
+.game__vs .is-loss { color: var(--neg); }
+.game__top .pfbox { margin-left: auto; flex-shrink: 0; }
+.game__grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.game__grid--3 { grid-template-columns: repeat(3, 1fr); margin-top: 6px; }
+.game__grid--4 { grid-template-columns: repeat(4, 1fr); margin-top: 6px; }
+.game__grid .stat { padding: 7px 2px; }
+.game__note { margin: 10px 2px 0; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.5; }
 
 /* Reglas: la fórmula de los puntos y el calendario de la jornada, en la hoja de ayuda. */
 .formula {

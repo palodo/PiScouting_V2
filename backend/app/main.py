@@ -680,11 +680,13 @@ class RaiseClauseBody(BaseModel):
 
 
 @app.get("/api/fantasy/leagues/{league_id}/player/{player_id}")
-def fantasy_player(league_id: int, player_id: int, user: User = Depends(auth.get_current_user),
+def fantasy_player(league_id: int, player_id: int, jornada: Optional[int] = None,
+                   user: User = Depends(auth.get_current_user),
                    session: Session = Depends(get_session)):
+    """Ficha del jugador. Con `jornada`, añade su partido de ese día (línea de acta)."""
     lg = _get_league(session, league_id)
     try:
-        return fantasy_mod.player_detail(session, lg, player_id)
+        return fantasy_mod.player_detail(session, lg, player_id, jornada)
     except ValueError as e:
         raise HTTPException(404, str(e))
 

@@ -10,7 +10,7 @@ import { Loading, Photo, Section, Sheet, SheetClose, prettyName, prettyTeam } fr
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
 /* ---------------------------------------------------------- ficha completa */
-export function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget, busy,
+export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, freeBudget, busy,
   onClose, onClause, onRaise, onSell }: any) {
   const [d, setD] = useState<any>(null);
   const [mode, setMode] = useState<"view" | "raise" | "sell">("view");
@@ -18,11 +18,11 @@ export function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget
 
   useEffect(() => {
     setD(null); setMode("view");
-    api.player(leagueId, playerId).then((x) => {
+    api.player(leagueId, playerId, jornada).then((x) => {
       setD(x);
       setNewClause(r1((x.clause ?? 0) + 10));
     }).catch(() => setD(false));
-  }, [leagueId, playerId]);
+  }, [leagueId, playerId, jornada]);
 
   if (d === false) {
     return <Sheet onClose={onClose}><div className="empty"><b>No se pudo cargar la ficha</b></div></Sheet>;
@@ -61,6 +61,9 @@ export function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget
         </div>
         <SheetClose onClose={onClose} />
       </div>
+
+      {/* Si se abre desde una jornada, lo primero es ese partido: es lo que se venía a ver */}
+      {d.game && <GameLine g={d.game} />}
 
       {/* Lo que de verdad suma en la liga */}
       <div className="fp">
@@ -200,6 +203,47 @@ export function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget
         )}
       </div>
     </Sheet>
+  );
+}
+
+/** El partido de una jornada concreta: el acta entera y de dónde salen sus puntos. */
+function GameLine({ g }: { g: any }) {
+  const linea = [["MIN", g.min], ["PTS", g.pts], ["REB", g.reb], ["AST", g.ast],
+    ["VAL", g.val], ["+/-", g.pm > 0 ? `+${g.pm}` : g.pm]] as [string, any][];
+  const tiro = [["T2", g.t2], ["T3", g.t3], ["TL", g.tl]] as [string, any][];
+  const resto = [["ROB", g.stl], ["TAP", g.blk], ["PER", g.tov], ["FLT", g.pf]] as [string, any][];
+  return (
+    <div className="game">
+      <div className="game__top">
+        <div>
+          <span className="game__k">Jornada {g.jornada}</span>
+          <div className="game__vs">
+            {g.home ? "vs" : "en"} {prettyTeam(g.rival) || "—"}
+            {g.score && <b className={g.won ? "is-win" : "is-loss"}> {g.score}</b>}
+          </div>
+        </div>
+        <PfBox value={g.points} label="PF" />
+      </div>
+      <div className="game__grid">
+        {linea.map(([k, v]) => (
+          <div key={k} className="stat"><b>{v}</b><span>{k}</span></div>
+        ))}
+      </div>
+      <div className="game__grid game__grid--3">
+        {tiro.map(([k, v]) => (
+          <div key={k} className="stat"><b>{v}</b><span>{k}</span></div>
+        ))}
+      </div>
+      <div className="game__grid game__grid--4">
+        {resto.map(([k, v]) => (
+          <div key={k} className="stat"><b>{v}</b><span>{k}</span></div>
+        ))}
+      </div>
+      <p className="game__note">
+        {g.starter ? "Salió de titular. " : ""}
+        {g.points} PF = {g.val} de valoración{g.win_bonus ? ` + ${g.win_bonus} por ganar` : ""}.
+      </p>
+    </div>
   );
 }
 
@@ -425,10 +469,13 @@ export function ScoringSheet({ lg, onClose }: { lg: any; onClose: () => void }) 
 }
 
 /* -------------------------------------- jornada de otro mánager (desglose) */
-export function ManagerJornadaSheet({ row, onClose }: { row: any; onClose: () => void }) {
+export function ManagerJornadaSheet({ row, onClose, onPlayer }: {
+  row: any; onClose: () => void; onPlayer?: (id: number, jornada: number) => void;
+}) {
   const players: any[] = row.players ?? [];
   const starters = players.filter((p) => p.starter);
   const bench = players.filter((p) => !p.starter);
+  const open = onPlayer ? (p: any) => onPlayer(p.player_id, row.jornada) : undefined;
   return (
     <Sheet onClose={onClose} title={row.manager}>
       <div className="sheet__head" style={{ marginBottom: 10 }}>
@@ -440,18 +487,24 @@ export function ManagerJornadaSheet({ row, onClose }: { row: any; onClose: () =>
         </div>
         <SheetClose onClose={onClose} />
       </div>
-      {starters.map((p) => <JornadaLine key={p.player_id} p={p} />)}
+      {starters.map((p) => (
+        <JornadaLine key={p.player_id} p={p} onOpen={open && (() => open(p))} />
+      ))}
       {bench.length > 0 && <>
         <Section right="no suman">Banquillo</Section>
-        {bench.map((p) => <JornadaLine key={p.player_id} p={p} bench />)}
+        {bench.map((p) => (
+          <JornadaLine key={p.player_id} p={p} bench onOpen={open && (() => open(p))} />
+        ))}
       </>}
     </Sheet>
   );
 }
 
-function JornadaLine({ p, bench }: { p: any; bench?: boolean }) {
+function JornadaLine({ p, bench, onOpen }: { p: any; bench?: boolean; onOpen?: () => void }) {
   return (
-    <div className={"prow" + (bench ? " prow--dim" : "")}>
+    <div className={"prow" + (bench ? " prow--dim" : "") + (onOpen ? " prow--tap" : "")}
+      onClick={onOpen} tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={(e) => { if (onOpen && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(); } }}>
       <Photo code={p.feb_code} name={p.name} variant="sm" />
       <div className="prow__body">
         <div className="prow__name">{prettyName(p.name)}</div>

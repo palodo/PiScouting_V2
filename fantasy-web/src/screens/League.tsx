@@ -44,7 +44,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [bidFor, setBidFor] = useState<any>(null);
-  const [playerFor, setPlayerFor] = useState<number | null>(null);
+  // {id, jornada?}: con jornada, la ficha abre por el partido de ese día
+  const [playerFor, setPlayerFor] = useState<{ id: number; jornada?: number } | null>(null);
   const [rivalFor, setRivalFor] = useState<any>(null);
   const [jornadaFor, setJornadaFor] = useState<any>(null);
   const [clauseFor, setClauseFor] = useState<any>(null);
@@ -123,6 +124,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
     act(() => api.lineup(id, isStarter ? ids.filter((x) => x !== pid) : [...ids, pid]));
   }
 
+  const openPlayer = (id: number, jornada?: number) => setPlayerFor({ id, jornada });
+
   function openManager(r: any) {
     // desde la jornada ya tenemos su desglose; desde la general hay que pedir la plantilla
     if (r.players) setJornadaFor({ ...r, jornada: jr?.jornada });
@@ -184,14 +187,14 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       <main className="wrap wrap--tabbed">
         {tab === "equipo" && (
           <TeamTab lg={lg} squad={squad} starters={starters} bench={bench} busy={busy}
-            ph={ph} left={phaseLeft} onOpen={setPlayerFor} onToggle={toggleStarter}
+            ph={ph} left={phaseLeft} onOpen={openPlayer} onToggle={toggleStarter}
             onScoring={() => setScoring(true)} />
         )}
 
         {tab === "mercado" && (
           <MarketTab lg={lg} market={market} clauses={clauses} admin={admin} busy={busy}
             view={marketView} onView={setMarketView}
-            onOpenPlayer={setPlayerFor} onBid={setBidFor} onClause={setClauseFor}
+            onOpenPlayer={openPlayer} onBid={setBidFor} onClause={setClauseFor}
             onForceOpen={() => act(() => api.openMarket(id), "Mercado abierto")}
             onForceClose={() => act(() => api.closeMarket(id), "Mercado cerrado y pujas resueltas")} />
         )}
@@ -199,7 +202,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         {tab === "liga" && (
           <TableTab data={data} lg={lg} jr={jr}
             onJornada={(j: number) => api.jornada(id, j).then(setJr).catch(() => {})}
-            onManager={openManager} />
+            onManager={openManager} onPlayer={openPlayer} />
         )}
 
         {tab === "feed" && (
@@ -224,7 +227,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       )}
 
       {playerFor != null && (
-        <PlayerSheet leagueId={id} playerId={playerFor} league={lg} busy={busy}
+        <PlayerSheet leagueId={id} playerId={playerFor.id} jornada={playerFor.jornada}
+          league={lg} busy={busy}
           myMemberId={data.my_member_id} freeBudget={freeBudget}
           onClose={() => setPlayerFor(null)}
           onClause={(p: any) => { setPlayerFor(null); setClauseFor(p); }}
@@ -245,12 +249,13 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       {rivalFor && (
         <ManagerSheet data={rivalFor} free={freeBudget} canTrade={lg.can_trade ?? true}
           onClose={() => setRivalFor(null)}
-          onPlayer={(pid) => { setRivalFor(null); setPlayerFor(pid); }}
+          onPlayer={(pid) => { setRivalFor(null); openPlayer(pid); }}
           onClause={(p: any) => { setRivalFor(null); setClauseFor(p); }} />
       )}
 
       {jornadaFor && (
-        <ManagerJornadaSheet row={jornadaFor} onClose={() => setJornadaFor(null)} />
+        <ManagerJornadaSheet row={jornadaFor} onClose={() => setJornadaFor(null)}
+          onPlayer={(pid, j) => { setJornadaFor(null); openPlayer(pid, j); }} />
       )}
 
       {scoring && <ScoringSheet lg={lg} onClose={() => setScoring(false)} />}
@@ -324,9 +329,10 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
         <HalfCourt />
         {SLOTS.map((pos, i) => {
           const p = starters[i];
+          // los cinco de la pista también abren ficha: es donde primero se toca
           return (
-            <div key={i} style={pos as any}
-              className={"tok" + (p ? "" : " tok--empty") + (p?.departed ? " tok--gone" : "")}>
+            <div key={i} style={pos as any} onClick={p ? () => onOpen(p.player_id) : undefined}
+              className={"tok" + (p ? " tok--tap" : " tok--empty") + (p?.departed ? " tok--gone" : "")}>
               <Photo code={p?.feb_code} name={p?.name} variant="tok" />
               <span className="tok__tag">{p ? prettyName(p.name).split(" ").slice(-1)[0] : "Libre"}</span>
               {p && <span className="tok__sub num">{fp(p).toFixed(1)} PF</span>}

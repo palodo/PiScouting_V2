@@ -8,7 +8,7 @@ import { Empty, Photo, Section, Segmented, prettyName, prettyTeam } from "../ui"
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-export default function TableTab({ data, lg, jr, onJornada, onManager }: any) {
+export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer }: any) {
   const rows: any[] = jr?.rows ?? [];
   const [view, setView] = useState<"jornada" | "general">(rows.length ? "jornada" : "general");
 
@@ -21,14 +21,15 @@ export default function TableTab({ data, lg, jr, onJornada, onManager }: any) {
         ]} />
       </div>
       {view === "jornada"
-        ? <JornadaView jr={jr} myId={data.my_member_id} onJornada={onJornada} onManager={onManager} />
+        ? <JornadaView jr={jr} myId={data.my_member_id} onJornada={onJornada}
+            onManager={onManager} onPlayer={onPlayer} />
         : <General data={data} lg={lg} onManager={onManager} />}
     </>
   );
 }
 
 /* ------------------------------------------------------------- por jornada */
-function JornadaView({ jr, myId, onJornada, onManager }: any) {
+function JornadaView({ jr, myId, onJornada, onManager, onPlayer }: any) {
   const rows: any[] = jr?.rows ?? [];
   const js: number[] = jr?.jornadas ?? [];
   const strip = useRef<HTMLDivElement>(null);
@@ -92,17 +93,20 @@ function JornadaView({ jr, myId, onJornada, onManager }: any) {
       )}
 
       <Section right={`${r1(starters.reduce((a, p) => a + p.points, 0))} pts`}>Tu quinteto</Section>
-      {starters.map((p) => <JornadaRow key={p.player_id} p={p} />)}
+      {starters.map((p) => (
+        <JornadaRow key={p.player_id} p={p} onOpen={() => onPlayer(p.player_id, jr.jornada)} />
+      ))}
       {starters.length === 0 && <p className="hint">No tenías a nadie alineado.</p>}
 
       {bench.length > 0 && <>
         <Section right="no suman">Banquillo</Section>
-        {bench.map((p) => <JornadaRow key={p.player_id} p={p} bench />)}
+        {bench.map((p) => (
+          <JornadaRow key={p.player_id} p={p} bench onOpen={() => onPlayer(p.player_id, jr.jornada)} />
+        ))}
       </>}
 
       <p className="hint" style={{ marginTop: 10 }}>
-        Es el quinteto que tenías puesto esa jornada. El banquillo no suma, pero ahí ves lo
-        que habría hecho.
+        Es el quinteto que tenías puesto esa jornada. Toca a cualquiera para ver su partido.
       </p>
 
       <Section>Clasificación de la jornada</Section>
@@ -133,9 +137,11 @@ function JornadaView({ jr, myId, onJornada, onManager }: any) {
   );
 }
 
-function JornadaRow({ p, bench }: { p: any; bench?: boolean }) {
+function JornadaRow({ p, bench, onOpen }: { p: any; bench?: boolean; onOpen?: () => void }) {
   return (
-    <div className={"prow" + (bench ? " prow--dim" : "")}>
+    <div className={"prow" + (bench ? " prow--dim" : "") + (onOpen ? " prow--tap" : "")}
+      onClick={onOpen} tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={(e) => { if (onOpen && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(); } }}>
       <Photo code={p.feb_code} name={p.name} variant="sm" />
       <div className="prow__body">
         <div className="prow__name">{prettyName(p.name)}</div>
