@@ -29,6 +29,37 @@ def _parse_date(text: Optional[str]) -> Optional[date]:
     return m
 
 
+try:  # las horas de la FEB son peninsulares; dentro se trabaja en UTC
+    from zoneinfo import ZoneInfo
+    _TZ = ZoneInfo("Europe/Madrid")
+except Exception:  # pragma: no cover - sin tzdata se asume UTC
+    from datetime import timezone as _tz
+    _TZ = _tz.utc
+
+
+def _parse_start_text(text: Optional[str]) -> Optional[datetime]:
+    """'26-09-2026 19:00' (cabecera de LiveStats) -> datetime UTC naive."""
+    if not text:
+        return None
+    import re
+    m = re.search(r"(\d{1,2}:\d{2})", text)
+    return _parse_start(text.split(" ")[0].strip(), m.group(1) if m else None)
+
+
+def _parse_start(fecha: Optional[str], hora: Optional[str]) -> Optional[datetime]:
+    """'26/09/2026' + '19:00' -> datetime UTC naive. Sin hora no hay salto que valga."""
+    d = _parse_date(fecha)
+    if not d or not hora:
+        return None
+    try:
+        h, m = (int(x) for x in hora.split(":")[:2])
+    except (TypeError, ValueError):
+        return None
+    from datetime import timezone
+    local = datetime(d.year, d.month, d.day, h % 24, m % 60, tzinfo=_TZ)
+    return local.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def upsert_team(session: Session, *, feb_code: str, name: str, logo: Optional[str],
                 competition: str, grupo: Optional[str], season: str,
                 feb_url: Optional[str] = None) -> Team:
@@ -105,6 +136,7 @@ def ingest_match(session: Session, client: FEBClient, partido_id: str, *,
     match.jornada = jornada or match.jornada
     match.jornada_num = jornada_num if jornada_num is not None else match.jornada_num
     match.match_date = match_date or _parse_date(header.get("starttime")) or match.match_date
+    match.start_at = _parse_start_text(header.get("starttime")) or match.start_at
     match.home_team_id = home_team.id
     match.away_team_id = away_team.id
     match.home_score = teams[home_index]["pts"]

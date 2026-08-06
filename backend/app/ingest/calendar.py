@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import time
 import random
+from typing import Optional
 from urllib.parse import urljoin, urlparse, parse_qs
 
 import requests
@@ -26,6 +27,8 @@ HEADERS = {
 JORNADA_Y_FECHA_RE = re.compile(r"jornada\s*(\d+)\s+(\d{2}/\d{2}/\d{4})", re.I)
 JORNADA_SOLO_RE = re.compile(r"jornada\s*(\d+)", re.I)
 RESULTADO_RE = re.compile(r"(\d+)\s*-\s*(\d+)")
+# "SÁBADO 26/09/2026 19:00" en la celda de fecha de los partidos aún por jugar
+FECHA_HORA_RE = re.compile(r"(\d{2}/\d{2}/\d{4})(?:\s+(\d{1,2}:\d{2}))?")
 
 
 def _norm(s: str | None) -> str:
@@ -133,12 +136,25 @@ def _parse_matches(html: str, grupo: str) -> list[dict]:
                 mr = RESULTADO_RE.search(_norm(td_res.get_text()))
                 if mr:
                     resultado = f"{mr.group(1)}-{mr.group(2)}"
+            # Los partidos por jugar traen su día y hora reales ("SÁBADO 26/09/2026 19:00"),
+            # que NO tienen por qué coincidir con la fecha del título de la jornada: una
+            # jornada se reparte entre varios días. Los ya jugados solo enseñan el resultado,
+            # y ahí la del título es lo único que hay.
+            fecha_row, hora_row = None, None
+            td_fecha = tr.select_one("td.fecha")
+            if td_fecha:
+                # con separador: la FEB parte fecha y hora en dos etiquetas pegadas y sin
+                # él saldría "26/09/202619:00", que ya no parece una hora
+                mf = FECHA_HORA_RE.search(_norm(td_fecha.get_text(" ")))
+                if mf:
+                    fecha_row, hora_row = mf.group(1), mf.group(2)
             if local and visit and local != visit and partido_id:
                 mnum = re.search(r"(\d+)", jornada or "")
                 rows.append({
                     "grupo": grupo, "jornada": jornada,
                     "jornada_num": int(mnum.group(1)) if mnum else None,
-                    "fecha": fecha_col, "resultado": resultado,
+                    "fecha": fecha_row or fecha_col, "hora": hora_row,
+                    "fecha_jornada": fecha_col, "resultado": resultado,
                     "local": local, "local_url": local_url,
                     "visitante": visit, "visitante_url": visit_url,
                     "partido_id": partido_id, "partido_url": partido_url,
@@ -151,6 +167,9 @@ def crawl_calendar(calendar_slug: str, season: str, group_code: int = 1) -> list
 
     calendar_slug: p.ej. 'primerafeb', 'segundafeb', 'tercerafeb'
     group_code: subdivisión de la URL /calendario/<slug>/<group_code>/<season>
+
+    Sale barato (la FEB manda la temporada entera de un grupo en una sola página: unos
+    3 segundos por categoría), así que no hace falta acotarlo por jornadas.
     """
     url = f"{FEB_BASE}/calendario/{calendar_slug}/{group_code}/{season}"
     session = requests.Session()

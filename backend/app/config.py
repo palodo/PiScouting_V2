@@ -71,8 +71,10 @@ COURT_IMAGE = DATA_DIR / "basket_court_edited.png"
 FEB_BASE = "https://baloncestoenvivo.feb.es"
 LIVESTATS_API = "https://intrafeb.feb.es/LiveStats.API/api/v1"
 
-# Temporada por defecto: 2025 => "2025/2026"
-DEFAULT_SEASON = "2025"
+# Temporada por defecto: 2025 => "2025/2026". Al empezar una temporada nueva basta con
+# definir PISCOUTING_SEASON=2026 en el .env y reiniciar; el calendario ya estará ingerido
+# porque el refresco diario se trae el de la temporada siguiente en cuanto la FEB lo publica.
+DEFAULT_SEASON = os.environ.get("PISCOUTING_SEASON", "").strip() or "2025"
 
 # Competiciones disponibles para el fantasy.
 # ⚠️ 3ª FEB (Liga EBA) PUEDE incluir jugadores MENORES de edad y no tenemos su fecha de

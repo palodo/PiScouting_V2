@@ -150,6 +150,29 @@ def departed_players(session: Session, comp: str, grupo: Optional[str], season: 
     return {r[0] for r in rows}
 
 
+def season_progress(session: Session, comp: str, grupo: Optional[str], season: str) -> dict:
+    """Por dónde va la temporada REAL de esa conferencia.
+
+    `live` es True mientras queden partidos por jugarse: es lo que decide si una liga nueva
+    se juega contra el calendario de verdad o en simulación (la 25/26 está entera, así que
+    ahí no hay nada que esperar y toca repetirla jornada a jornada).
+    """
+    q = select(Match).where(Match.competition == comp, Match.season == season)
+    if grupo:
+        q = q.where(Match.grupo == grupo)
+    played, pending, mj = set(), set(), 0
+    for m in session.exec(q).all():
+        if m.jornada_num is None:
+            continue
+        mj = max(mj, m.jornada_num)
+        (played if m.home_score is not None and m.away_score is not None else pending).add(
+            m.jornada_num)
+    # una jornada cuenta como jugada solo si NINGÚN partido suyo falta
+    completas = played - pending
+    return {"max_jornada": mj, "last_played": max(completas, default=0),
+            "live": bool(pending)}
+
+
 def max_jornada(session: Session, comp: str, grupo: Optional[str], season: str) -> int:
     q = select(Match).where(Match.competition == comp, Match.season == season)
     if grupo:
@@ -338,15 +361,30 @@ def _weekly_slot(after: datetime, weekday: int, hour: int) -> datetime:
     return cand.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def jornada_dates(session: Session, league: FantasyLeague, jornada: int) -> tuple:
-    """(primera, última) fecha de los partidos de esa jornada. (None, None) si no hay."""
-    q = select(Match.match_date).where(Match.competition == league.competition,
-                                       Match.season == league.season,
-                                       Match.jornada_num == jornada)
+MATCH_LEN_H = 3  # lo que se le da a un partido desde el salto para estar acabado
+
+
+def jornada_real_window(session: Session, league: FantasyLeague, jornada: int) -> tuple:
+    """(primer salto, final) de una jornada según el calendario REAL de la FEB.
+
+    Se prefiere `start_at` (fecha y hora exactas del partido, que es lo que la FEB publica
+    mientras está por jugarse); si de un partido solo se sabe el día se usa la hora de
+    partido de la liga. (None, None) si esa jornada no tiene calendario todavía.
+    """
+    q = select(Match.match_date, Match.start_at).where(Match.competition == league.competition,
+                                                       Match.season == league.season,
+                                                       Match.jornada_num == jornada)
     if league.grupo:
         q = q.where(Match.grupo == league.grupo)
-    days = [d for d in session.exec(q).all() if d]
-    return (min(days), max(days)) if days else (None, None)
+    starts, ends = [], []
+    for day, start_at in session.exec(q).all():
+        if start_at:
+            starts.append(start_at)
+            ends.append(start_at + timedelta(hours=MATCH_LEN_H))
+        elif day:
+            starts.append(_at(day, league.play_hour))
+            ends.append(_at(day, 23, 59))
+    return (min(starts), max(ends)) if starts else (None, None)
 
 
 def _first_kickoff(league: FantasyLeague, now: datetime) -> datetime:
@@ -364,10 +402,9 @@ def jornada_window(session: Session, league: FantasyLeague, jornada: int) -> tup
     esa jornada no tiene fechas— manda el calendario semanal de la liga.
     """
     if not league.sim_mode:
-        first, last = jornada_dates(session, league, jornada)
+        first, last = jornada_real_window(session, league, jornada)
         if first:
-            # La FEB solo nos da el día, no la hora: se usa la hora de partido de la liga.
-            return _at(first, league.play_hour), _at(last, 23, 59)
+            return first, last
     start = league.kickoff_at or _first_kickoff(league, utcnow())
     return start, start + timedelta(hours=league.play_duration_h)
 
@@ -633,15 +670,28 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
                   market_duration_h: int = 24, market_size: int = 10,
                   initial_squad: int = 5, clause_factor: float = 2.0,
                   clause_lock_h: int = 24, open_now: bool = True,
-                  sim_mode: bool = True, play_weekday: int = 5, play_hour: int = 18,
+                  sim_mode: Optional[bool] = None, play_weekday: int = 5, play_hour: int = 18,
                   play_duration_h: int = 30,
                   market_close_before_h: int = 24) -> FantasyLeague:
     if competition not in FANTASY_COMPETITIONS:
         raise ValueError("Esa competición no está disponible para el fantasy.")
-    mj = max_jornada(session, competition, grupo, season)
+    prog = season_progress(session, competition, grupo, season)
+    mj = prog["max_jornada"]
     if mj == 0:
         raise ValueError("Esa conferencia no tiene datos de partidos todavía")
-    start = start_jornada if start_jornada is not None else max(3, round(mj * 0.35))
+    # Con la temporada en marcha se juega contra el calendario real y se arranca donde
+    # esté de verdad; si ya está entera, se repite en simulación desde media temporada.
+    if sim_mode is None:
+        sim_mode = not prog["live"]
+    if start_jornada is not None:
+        start = start_jornada
+    elif sim_mode:
+        start = max(3, round(mj * 0.35))
+    else:
+        start = prog["last_played"]
+    if not sim_mode and prog["last_played"] == 0:
+        raise ValueError("La temporada aún no ha empezado: espera a que se juegue la "
+                         "primera jornada (antes no hay ni plantillas ni precios).")
     start = int(_clamp(start, 1, mj - 1))
     now = utcnow()
     league = FantasyLeague(
@@ -666,10 +716,11 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
     session.add(league)
     session.commit()
     session.refresh(league)
+    cuando = (f"jornada los {WEEKDAYS[league.play_weekday]} a las {league.play_hour:02d}:00"
+              if league.sim_mode else "calendario real de la FEB")
     _log(session, league.id, "info",
-         f"🏆 Liga creada · jornada los {WEEKDAYS[league.play_weekday]} a las "
-         f"{league.play_hour:02d}:00 · mercado todos los días a las {league.market_hour:02d}:00 "
-         f"hasta {league.market_close_before_h} h antes")
+         f"🏆 Liga creada · {cuando} · mercado todos los días a las "
+         f"{league.market_hour:02d}:00 hasta {league.market_close_before_h} h antes")
     session.commit()
     join_league(session, league, owner_id, manager_name)
     sync_market(session, league)

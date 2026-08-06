@@ -76,9 +76,21 @@ crea una cuenta nueva en la app (registro con email+contraseña y elección de e
 - **Fantasy: la liga va por fases** (`fantasy.league_state`), y de ahí cuelga todo lo demás:
   `mercado` (tandas diarias, se ficha) → `alineacion` (mercado cerrado, solo quinteto) →
   `jornada` (todo bloqueado hasta que se juegue, aplazamientos incluidos; se puntúa sola).
-  Como la temporada de la BBDD ya está jugada, en `sim_mode` el reloj es el calendario propio
-  de la liga (`play_weekday` + `play_hour`, semanal) y NO las fechas reales de los partidos.
   Cualquier acción que mueva dinero o el quinteto pasa por `_require(...)`.
+- **Simulación vs temporada real**: `sim_mode` lo decide sola `create_league` mirando si
+  quedan partidos por jugarse (`season_progress`). En simulación el reloj es el calendario
+  propio de la liga (`play_weekday` + `play_hour`, semanal); en real manda `Match.start_at`,
+  la fecha y **hora** de cada partido tal cual las publica la FEB. Ojo: la fecha del título
+  de la jornada NO sirve (la jornada se reparte entre varios días), por eso el calendario se
+  parsea partido a partido (`td.fecha`, "SÁBADO 26/09/2026 19:00"). La hora solo está
+  mientras el partido no se ha jugado: una vez jugado la FEB la quita, así que nunca se pisa
+  `start_at` con None.
+- **Autonomía**: `refresh.run_refresh()` (endpoint `POST /api/admin/refresh`) cuesta ~10 s y
+  5 peticiones, así que va en un **cron cada hora** en la VM. Es lo que puntúa la jornada
+  sola y recoge aplazamientos. Deja el resultado en `data/refresh_last.json` y asomado en
+  `/api/health` (`last_refresh`), que es como se ve desde fuera que sigue vivo. Fuera de
+  temporada se trae solo el calendario del curso siguiente; para pasar la app a esa
+  temporada, `PISCOUTING_SEASON=2026` en el `.env`.
 - **Fantasy en simulación**: las estadísticas se recortan SIEMPRE a `current_jornada`
   (`all_priced`, `player_detail`); si no, la ficha destripa partidos que en la liga no se han
   jugado. Al tocar cualquier consulta nueva, mantener ese filtro.

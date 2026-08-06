@@ -10,7 +10,7 @@ from ..config import COMPETITIONS
 from ..models import Team, Match
 from .feb_client import FEBClient, team_code_from_url
 from .calendar import crawl_calendar
-from .pipeline import upsert_team, ingest_match, _parse_date
+from .pipeline import upsert_team, ingest_match, _parse_date, _parse_start
 
 
 def _score(resultado: Optional[str]) -> tuple[Optional[int], Optional[int]]:
@@ -46,6 +46,9 @@ def store_calendar(session: Session, competition: str, season: str, rows: list[d
         match.jornada = r["jornada"]
         match.jornada_num = r.get("jornada_num")
         match.match_date = _parse_date(r.get("fecha")) or match.match_date
+        # La hora solo viene mientras el partido está por jugarse; una vez jugado la FEB
+        # deja de publicarla, así que no se pisa con None (se perdería el aplazamiento).
+        match.start_at = _parse_start(r.get("fecha"), r.get("hora")) or match.start_at
         match.home_team_id = home.id
         match.away_team_id = away.id
         hs, as_ = _score(r.get("resultado"))

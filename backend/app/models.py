@@ -66,6 +66,9 @@ class Match(SQLModel, table=True):
     jornada: Optional[str] = Field(default=None, index=True)
     jornada_num: Optional[int] = Field(default=None, index=True)
     match_date: Optional[date] = Field(default=None, index=True)
+    # Salto inicial real (UTC) cuando la FEB publica la hora, que es solo mientras el
+    # partido está por jugarse. Es el reloj del fantasy: cierra el quinteto de la jornada.
+    start_at: Optional[datetime] = Field(default=None, index=True)
 
     home_team_id: Optional[int] = Field(default=None, foreign_key="teams.id", index=True)
     away_team_id: Optional[int] = Field(default=None, foreign_key="teams.id", index=True)

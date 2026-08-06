@@ -63,7 +63,18 @@ def health(session: Session = Depends(get_session)):
     for model, label in [(Team, "teams"), (Player, "players"), (Match, "matches"),
                          (PlayerMatchStat, "player_stats")]:
         counts[label] = session.exec(select(func.count()).select_from(model)).one()
-    return {"status": "ok", "counts": counts}
+    # Cuándo se habló por última vez con la FEB. Va aquí, sin token, porque es la señal de
+    # que la app sigue viva sola: si esta fecha se queda atrás, algo se ha roto.
+    last = refresh_mod.last_result()
+    return {
+        "status": "ok", "counts": counts,
+        "last_refresh": {
+            "at": last.get("finished_at"), "ok": last.get("ok"),
+            "pending_matches": last.get("pending_matches"),
+            "match_errors": last.get("match_errors"),
+            "running": refresh_mod.is_running(),
+        } if last else None,
+    }
 
 
 # ===================== Actualización diaria (admin) =====================
@@ -79,8 +90,10 @@ def _check_admin(token: Optional[str]) -> None:
 def admin_refresh(x_admin_token: Optional[str] = Header(default=None), wait: bool = False):
     """Actualiza la BBDD desde la FEB (calendarios + detalle nuevo + limpia caché).
 
-    Protegido por la cabecera X-Admin-Token. Pensado para dispararlo una vez al día
-    desde un cron (p.ej. GitHub Actions). Por defecto responde al momento y trabaja en
+    Es barata (~10 s) e idempotente: pensada para un cron cada hora, que es lo que hace que
+    el fantasy puntúe la jornada solo en cuanto entra el último resultado.
+
+    Protegido por la cabecera X-Admin-Token. Por defecto responde al momento y trabaja en
     segundo plano; con ?wait=true espera al resultado."""
     _check_admin(x_admin_token)
     if refresh_mod.is_running():
@@ -419,7 +432,9 @@ class CreateLeagueBody(BaseModel):
     initial_squad: int = 5
     clause_factor: float = 2.0
     clause_lock_h: int = 24
-    # calendario: día/hora del primer partido de cada jornada y corte del mercado
+    # calendario: día/hora del primer partido de cada jornada y corte del mercado.
+    # `sim_mode` sin valor = lo decide la app según si la temporada está en marcha.
+    sim_mode: Optional[bool] = None
     play_weekday: int = 5
     play_hour: int = 18
     play_duration_h: int = 30
@@ -506,8 +521,9 @@ def fantasy_create(body: CreateLeagueBody, user: User = Depends(auth.get_current
             market_weekday=body.market_weekday, market_hour=body.market_hour,
             market_duration_h=body.market_duration_h, market_size=body.market_size,
             initial_squad=body.initial_squad, clause_factor=body.clause_factor,
-            clause_lock_h=body.clause_lock_h, play_weekday=body.play_weekday,
-            play_hour=body.play_hour, play_duration_h=body.play_duration_h,
+            clause_lock_h=body.clause_lock_h, sim_mode=body.sim_mode,
+            play_weekday=body.play_weekday, play_hour=body.play_hour,
+            play_duration_h=body.play_duration_h,
             market_close_before_h=body.market_close_before_h)
     except ValueError as e:
         raise HTTPException(400, str(e))
