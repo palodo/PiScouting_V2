@@ -1277,19 +1277,25 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
         # mismos puntos, mismo puesto
         r["pos"] = out[i - 1]["pos"] if i and r["points"] == out[i - 1]["points"] else i + 1
 
-    # Cómo lo hizo cada jugador esa jornada, con el quinteto que estaba puesto entonces
-    # (las jornadas puntuadas antes de guardarlo caen en la plantilla actual, como antes).
+    # Cómo lo hizo cada jugador esa jornada, con el quinteto que estaba puesto ENTONCES.
+    #
+    # Las jornadas puntuadas antes de que se guardara ese quinteto no tienen forma de
+    # saberlo, y reconstruirlo con la plantilla de hoy era peor que no decir nada: cada vez
+    # que alguien tocaba su alineación, el pasado cambiaba. En esas se marca
+    # `lineup_known: false` y la app enseña la plantilla sin repartir titulares.
     if out:
         pts = jornada_points(session, league, j)
         info = {r["player_id"]: r for r in all_priced(session, league)}
         for r in out:
             picks = picks_of(session, r["member_id"])
             saved = r.pop("starters")
-            # los que jugaron esa jornada aunque ya no estén en la plantilla, primero
-            ids = list(saved or []) + [p.player_id for p in picks
-                                       if p.player_id not in (saved or [])]
-            was_starter = ((lambda pid: pid in saved) if saved is not None
-                           else (lambda pid: any(p.starter for p in picks if p.player_id == pid)))
+            r["lineup_known"] = saved is not None
+            if saved is not None:
+                # los que jugaron esa jornada aunque ya no estén en la plantilla, primero
+                ids = list(saved) + [p.player_id for p in picks if p.player_id not in saved]
+            else:
+                # al menos se quitan los que se ficharon DESPUÉS: esos seguro que no estaban
+                ids = [p.player_id for p in picks if p.buy_jornada <= j]
             players = []
             for pid in ids:
                 d = info.get(pid, {})
@@ -1297,7 +1303,7 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
                     "player_id": pid, "name": d.get("name", "?"),
                     "feb_code": d.get("feb_code"), "team": d.get("team"),
                     "points": pts.get(pid, 0.0), "played": pid in pts,
-                    "starter": was_starter(pid),
+                    "starter": bool(saved is not None and pid in saved),
                     # ya no lo tienes: se enseña igual, pero se avisa
                     "gone": pid not in {p.player_id for p in picks},
                 })

@@ -472,8 +472,10 @@ export function ManagerJornadaSheet({ row, onClose, onPlayer }: {
   row: any; onClose: () => void; onPlayer?: (id: number, jornada: number) => void;
 }) {
   const players: any[] = row.players ?? [];
-  const starters = players.filter((p) => p.starter);
-  const bench = players.filter((p) => !p.starter);
+  // ver Table.tsx: en las jornadas viejas no se guardó el quinteto y no hay que fingirlo
+  const known = row.lineup_known !== false;
+  const starters = known ? players.filter((p) => p.starter) : [];
+  const bench = known ? players.filter((p) => !p.starter) : [];
   const open = onPlayer ? (p: any) => onPlayer(p.player_id, row.jornada) : undefined;
   return (
     <Sheet onClose={onClose} title={row.manager}>
@@ -486,7 +488,13 @@ export function ManagerJornadaSheet({ row, onClose, onPlayer }: {
         </div>
         <SheetClose onClose={onClose} />
       </div>
-      {starters.map((p) => (
+      {!known && (
+        <p className="hint" style={{ margin: "0 2px 10px" }}>
+          Esta jornada se puntuó antes de que la liga guardara el quinteto: esto es su
+          plantilla, no su alineación. Los {row.points} puntos son los de ese día.
+        </p>
+      )}
+      {(known ? starters : players).map((p) => (
         <JornadaLine key={p.player_id} p={p} onOpen={open && (() => open(p))} />
       ))}
       {bench.length > 0 && <>

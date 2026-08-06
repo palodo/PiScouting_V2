@@ -52,8 +52,11 @@ function JornadaView({ jr, myId, onJornada, onManager, onPlayer }: any) {
   const leader = rows[0];
   const gap = me && leader ? r1(leader.points - me.points) : 0;
   const players: any[] = me?.players ?? [];
-  const starters = players.filter((p) => p.starter);
-  const bench = players.filter((p) => !p.starter);
+  // jornadas viejas: se puntuaron sin guardar el quinteto, así que no se puede decir quién
+  // estaba alineado (y fingirlo con la plantilla de hoy hacía que el pasado cambiara solo)
+  const known = me?.lineup_known !== false;
+  const starters = known ? players.filter((p) => p.starter) : [];
+  const bench = known ? players.filter((p) => !p.starter) : [];
   const top = (list: any[]) => list.reduce((a, p) => (p.points > (a?.points ?? -99) ? p : a), null as any);
   const best = top(starters);
   // el que se quedó fuera y lo habría cambiado todo: es la mitad de la gracia de mirar atrás
@@ -92,22 +95,38 @@ function JornadaView({ jr, myId, onJornada, onManager, onPlayer }: any) {
         </p>
       )}
 
-      <Section right={`${r1(starters.reduce((a, p) => a + p.points, 0))} pts`}>Tu quinteto</Section>
-      {starters.map((p) => (
-        <JornadaRow key={p.player_id} p={p} onOpen={() => onPlayer(p.player_id, jr.jornada)} />
-      ))}
-      {starters.length === 0 && <p className="hint">No tenías a nadie alineado.</p>}
+      {known ? (
+        <>
+          <Section right={`${r1(starters.reduce((a, p) => a + p.points, 0))} pts`}>Tu quinteto</Section>
+          {starters.map((p) => (
+            <JornadaRow key={p.player_id} p={p} onOpen={() => onPlayer(p.player_id, jr.jornada)} />
+          ))}
+          {starters.length === 0 && <p className="hint">No tenías a nadie alineado.</p>}
 
-      {bench.length > 0 && <>
-        <Section right="no suman">Banquillo</Section>
-        {bench.map((p) => (
-          <JornadaRow key={p.player_id} p={p} bench onOpen={() => onPlayer(p.player_id, jr.jornada)} />
-        ))}
-      </>}
+          {bench.length > 0 && <>
+            <Section right="no suman">Banquillo</Section>
+            {bench.map((p) => (
+              <JornadaRow key={p.player_id} p={p} bench onOpen={() => onPlayer(p.player_id, jr.jornada)} />
+            ))}
+          </>}
 
-      <p className="hint" style={{ marginTop: 10 }}>
-        Es el quinteto que tenías puesto esa jornada. Toca a cualquiera para ver su partido.
-      </p>
+          <p className="hint" style={{ marginTop: 10 }}>
+            Es el quinteto que tenías puesto esa jornada. Toca a cualquiera para ver su partido.
+          </p>
+        </>
+      ) : (
+        <>
+          <Section right={`${me.points} pts`}>Tu plantilla esa jornada</Section>
+          {players.map((p) => (
+            <JornadaRow key={p.player_id} p={p} onOpen={() => onPlayer(p.player_id, jr.jornada)} />
+          ))}
+          <p className="hint" style={{ marginTop: 10 }}>
+            Esta jornada se puntuó antes de que la liga empezara a guardar el quinteto, así que
+            no se sabe a quién tenías alineado: lo que ves es tu plantilla, no el quinteto. Los
+            <b> {me.points} puntos</b> sí son los que se guardaron ese día y no se van a mover.
+          </p>
+        </>
+      )}
 
       <Section>Clasificación de la jornada</Section>
       <div className="podium">
