@@ -95,7 +95,8 @@ export function PfBox({ value, muted, label = "PF" }: { value: number; muted?: b
 export function PriceBox({ value }: { value: number }) {
   return (
     <div className="pricebox">
-      <b className="num">{value}</b>
+      {/* siempre con decimal: en una columna de precios, "18" junto a "17.8" baila */}
+      <b className="num">{value.toFixed(1)}</b>
       <span>M€</span>
     </div>
   );

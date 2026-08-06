@@ -227,8 +227,9 @@ function Clauses({ lg, data, busy, onOpenPlayer, onClause }: any) {
         : list.map((p: any) => {
           const afford = p.clause <= free;
           return (
-            <PlayerRow key={p.player_id} p={p} onOpen={() => onOpenPlayer(p.player_id)}
+            <PlayerRow key={p.player_id} p={p} onOpen={() => onOpenPlayer(p.player_id)} hidePrice
               meta={<>
+                <span className="prow__price prow__price--hero num">{p.price} M€</span>
                 <span className="prow__pf num">{fp(p).toFixed(1)} PF</span>
                 <span className="prow__owner">{p.owner}</span>
               </>}

@@ -68,14 +68,37 @@ export function HalfCourt() {
 /* -------------------------------------------------------------------- fotos */
 /* La FEB manda los nombres en mayúsculas ("A. ABELLO GIRVÉS"); en caja de título
    se leen mucho mejor y la interfaz deja de parecer que grita. */
-const PARTICLES = new Set(["de", "del", "la", "las", "los", "van", "der", "den", "da", "dos", "y", "i"]);
-export function prettyName(name?: string | null) {
+const PARTICLES = new Set(["de", "del", "la", "las", "los", "van", "von", "der", "den", "da",
+  "do", "dos", "di", "mc", "mac", "st", "el", "al", "ben", "bin", "y", "i"]);
+
+function words(name?: string | null) {
   const raw = (name ?? "").includes(",") ? (name ?? "").split(",")[0] : (name ?? "");
   return raw.trim().toLowerCase().split(/\s+/).filter(Boolean).map((w, i) => {
     if (w.endsWith(".") || w.length === 1) return w.toUpperCase();
     if (i > 0 && PARTICLES.has(w)) return w;
     return w.replace(/(^|[-'])(\p{L})/gu, (_, s, c) => s + c.toUpperCase());
-  }).join(" ");
+  });
+}
+
+/** Nombre completo, en caja de título ("J. Peris Crespo"). Para la ficha. */
+export function fullName(name?: string | null) {
+  return words(name).join(" ");
+}
+
+/**
+ * Nombre corto para listas: inicial y PRIMER apellido ("J. Peris"). Los dos apellidos
+ * llenan la fila y no aportan nada cuando ya ves la foto y el equipo. Las partículas se
+ * pegan al apellido que les toca, que si no salen cosas como "J. Van".
+ */
+export function prettyName(name?: string | null) {
+  const w = words(name);
+  const out: string[] = [];
+  for (const x of w) {
+    out.push(x);
+    const inicial = x.endsWith(".") || x.length === 1;
+    if (!inicial && !PARTICLES.has(x.toLowerCase())) break;
+  }
+  return out.join(" ");
 }
 
 /** Igual para los equipos, pero respetando siglas con punto ("C.B. GETAFE"). */

@@ -180,9 +180,12 @@ input, select, textarea { font-family: inherit; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* ------------------------------------------------------------------ layout */
-.shell { min-height: 100%; display: flex; flex-direction: column; }
+/* La pantalla ocupa siempre el alto visible y el contenido empuja: así la tabbar (sticky)
+   se queda abajo del todo aunque haya poco que enseñar. Con `fixed` y una página corta —el
+   mercado cerrado, sin subastas— el navegador móvil la levantaba a media pantalla. */
+.shell { min-height: 100dvh; display: flex; flex-direction: column; }
 .wrap { width: 100%; max-width: 560px; margin: 0 auto; padding: 14px 14px 26px; }
-.wrap--tabbed { padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 26px); }
+.wrap--tabbed { flex: 1; padding-bottom: 26px; }
 .centered {
   min-height: 100dvh; display: flex; align-items: center; justify-content: center;
   padding: 24px 18px calc(24px + var(--safe-b));
@@ -246,7 +249,7 @@ input, select, textarea { font-family: inherit; }
 
 /* ------------------------------------------------------------------ tabbar */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  position: sticky; bottom: 0; z-index: 30;
   display: flex; padding-bottom: var(--safe-b);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: saturate(1.4) blur(16px);
@@ -605,7 +608,9 @@ input, select, textarea { font-family: inherit; }
   font-size: var(--fs-xs); font-weight: 700; white-space: nowrap;
 }
 .prow__owner { color: var(--text-3); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prow__pf { color: var(--accent); font-weight: 800; white-space: nowrap; }
+/* En el mercado el que grita es el dinero; los PF acompañan. */
+.prow__pf { color: var(--text-3); font-weight: 700; white-space: nowrap; }
+.prow__price--hero { color: var(--accent); font-weight: 800; }
 .claim { text-align: right; line-height: 1.15; }
 .claim__v {
   display: block; font-family: var(--display); font-size: var(--fs-xl); font-weight: 800;
@@ -814,25 +819,26 @@ input, select, textarea { font-family: inherit; }
 }
 
 /* El partido de una jornada concreta, arriba del todo en la ficha del jugador. */
-.game {
-  margin-top: 14px; padding: 13px 14px 11px; border-radius: var(--r-md);
-  background: var(--surface); border: 1px solid var(--border-2);
-}
-.game__top { display: flex; align-items: center; gap: 12px; margin-bottom: 11px; }
+.game { margin-top: 14px; }
+.game__top { display: flex; align-items: flex-end; gap: 12px; }
 .game__k {
   display: block; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.09em;
-  text-transform: uppercase; color: var(--text-3);
+  text-transform: uppercase; color: var(--accent);
 }
-.game__vs { font-family: var(--display); font-size: var(--fs-lg); font-weight: 800; }
-.game__vs b { font-variant-numeric: tabular-nums; }
-.game__vs .is-win { color: var(--pos); }
-.game__vs .is-loss { color: var(--neg); }
+.game__vs {
+  font-family: var(--display); font-size: var(--fs-xl); font-weight: 800; line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.game__res {
+  display: inline-block; margin-top: 3px; padding: 2px 8px; border-radius: 999px;
+  font-size: var(--fs-xs); font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.game__res.is-win { color: var(--pos); background: var(--pos-soft); }
+.game__res.is-loss { color: var(--neg); background: var(--neg-soft); }
 .game__top .pfbox { margin-left: auto; flex-shrink: 0; }
-.game__grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-.game__grid--3 { grid-template-columns: repeat(3, 1fr); margin-top: 6px; }
-.game__grid--4 { grid-template-columns: repeat(4, 1fr); margin-top: 6px; }
-.game__grid .stat { padding: 7px 2px; }
-.game__note { margin: 10px 2px 0; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.5; }
+.game .stats { margin-top: 8px; }
+.game__note { margin: 9px 2px 0; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.5; }
+.game__note b { color: var(--text-2); }
 
 /* Reglas: la fórmula de los puntos y el calendario de la jornada, en la hoja de ayuda. */
 .formula {

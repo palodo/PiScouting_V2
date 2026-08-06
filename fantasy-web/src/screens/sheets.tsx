@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { IconBolt, IconCheck, IconClose, IconGavel, IconLock, IconMinus, IconPlus } from "../icons";
 import { PfBox, PlayerRow, lockLabel } from "../parts";
-import { Loading, Photo, Section, Sheet, SheetClose, prettyName, prettyTeam } from "../ui";
+import { Loading, Photo, Section, Sheet, SheetClose, fullName, prettyName, prettyTeam } from "../ui";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -47,11 +47,11 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
   const canTrade = (league?.can_trade ?? true) as boolean;
 
   return (
-    <Sheet onClose={onClose} title={prettyName(d.name)}>
+    <Sheet onClose={onClose} title={fullName(d.name)}>
       <div className="sheet__head">
         <Photo code={d.feb_code} name={d.name} variant="lg" />
         <div className="sheet__body">
-          <h2>{prettyName(d.name)}</h2>
+          <h2>{fullName(d.name)}</h2>
           <div className="dim" style={{ fontSize: "var(--fs-md)" }}>{prettyTeam(d.team)}</div>
           <div className="chiprow" style={{ marginTop: 7 }}>
             <span className="chip chip--accent"><b>{d.price}</b> M€</span>
@@ -208,40 +208,39 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
 
 /** El partido de una jornada concreta: el acta entera y de dónde salen sus puntos. */
 function GameLine({ g }: { g: any }) {
-  const linea = [["MIN", g.min], ["PTS", g.pts], ["REB", g.reb], ["AST", g.ast],
-    ["VAL", g.val], ["+/-", g.pm > 0 ? `+${g.pm}` : g.pm]] as [string, any][];
-  const tiro = [["T2", g.t2], ["T3", g.t3], ["TL", g.tl]] as [string, any][];
-  const resto = [["ROB", g.stl], ["TAP", g.blk], ["PER", g.tov], ["FLT", g.pf]] as [string, any][];
+  // Mismas rejillas que los promedios de más abajo, para que la ficha se lea de un tirón.
+  const Row = ({ mod, cells }: { mod?: string; cells: [string, any][] }) => (
+    <div className={"stats" + (mod ? ` stats--${mod}` : "")}>
+      {cells.map(([k, v]) => (
+        <div key={k} className="stat"><b>{v}</b><span>{k}</span></div>
+      ))}
+    </div>
+  );
   return (
     <div className="game">
       <div className="game__top">
-        <div>
+        <div style={{ minWidth: 0 }}>
           <span className="game__k">Jornada {g.jornada}</span>
           <div className="game__vs">
-            {g.home ? "vs" : "en"} {prettyTeam(g.rival) || "—"}
-            {g.score && <b className={g.won ? "is-win" : "is-loss"}> {g.score}</b>}
+            {g.home ? "vs " : "en "}{prettyTeam(g.rival) || "—"}
           </div>
+          {g.score && (
+            <span className={"game__res " + (g.won ? "is-win" : "is-loss")}>
+              {g.won ? "Ganó" : "Perdió"} {g.score}
+            </span>
+          )}
         </div>
-        <PfBox value={g.points} label="PF" />
+        <PfBox value={g.points} />
       </div>
-      <div className="game__grid">
-        {linea.map(([k, v]) => (
-          <div key={k} className="stat"><b>{v}</b><span>{k}</span></div>
-        ))}
-      </div>
-      <div className="game__grid game__grid--3">
-        {tiro.map(([k, v]) => (
-          <div key={k} className="stat"><b>{v}</b><span>{k}</span></div>
-        ))}
-      </div>
-      <div className="game__grid game__grid--4">
-        {resto.map(([k, v]) => (
-          <div key={k} className="stat"><b>{v}</b><span>{k}</span></div>
-        ))}
-      </div>
+
+      <Row mod="hero" cells={[["PTS", g.pts], ["REB", g.reb], ["AST", g.ast], ["VAL", g.val]]} />
+      <Row mod="5" cells={[["MIN", g.min], ["T2", g.t2], ["T3", g.t3], ["TL", g.tl],
+        ["+/-", g.pm > 0 ? `+${g.pm}` : g.pm]]} />
+      <Row cells={[["ROB", g.stl], ["TAP", g.blk], ["PER", g.tov], ["FLT", g.pf]]} />
+
       <p className="game__note">
         {g.starter ? "Salió de titular. " : ""}
-        {g.points} PF = {g.val} de valoración{g.win_bonus ? ` + ${g.win_bonus} por ganar` : ""}.
+        <b>{g.points} PF</b> = {g.val} de valoración{g.win_bonus ? ` + ${g.win_bonus} por ganar` : ""}.
       </p>
     </div>
   );
@@ -263,7 +262,7 @@ export function BidSheet({ listing, budget, busy, onClose, onBid, onCancel }: {
       <div className="sheet__head">
         <Photo code={listing.feb_code} name={listing.name} />
         <div className="sheet__body">
-          <h2 style={{ fontSize: "var(--fs-lg)" }}>{prettyName(listing.name)}</h2>
+          <h2 style={{ fontSize: "var(--fs-lg)" }}>{fullName(listing.name)}</h2>
           <div className="dim" style={{ fontSize: "var(--fs-md)" }}>{prettyTeam(listing.team)}</div>
           <div className="chiprow" style={{ marginTop: 6 }}>
             <span className="chip chip--accent">Salida <b>{min}</b> M€</span>
