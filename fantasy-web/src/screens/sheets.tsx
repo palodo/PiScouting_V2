@@ -43,6 +43,8 @@ export function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget
   const mine = d.owner_member_id && d.owner_member_id === myMemberId;
   const rival = d.owner_member_id && d.owner_member_id !== myMemberId;
   const raiseCost = r1((newClause - (d.clause ?? 0)) * (league?.clause_raise_cost ?? 0.25));
+  // Fuera de la fase de mercado no se mueve dinero: ni clausulazos, ni ventas, ni blindajes.
+  const canTrade = (league?.can_trade ?? true) as boolean;
 
   return (
     <Sheet onClose={onClose} title={prettyName(d.name)}>
@@ -129,22 +131,32 @@ export function PlayerSheet({ leagueId, playerId, league, myMemberId, freeBudget
       )}
 
       <div className="sheet__actions">
+        {!canTrade && (mine || rival) && (
+          <p className="hint" style={{ margin: 0 }}>
+            El mercado está cerrado por la jornada: ni cláusulas ni ventas hasta que vuelva a abrir.
+          </p>
+        )}
+
         {rival && (
-          <button className="btn btn--clause btn--block" disabled={busy || d.clause_locked || d.clause > freeBudget}
+          <button className="btn btn--clause btn--block"
+            disabled={busy || !canTrade || d.clause_locked || d.clause > freeBudget}
             onClick={() => onClause(d)}>
             <IconBolt size={17} strokeWidth={2.2} />
-            {d.clause_locked ? "Blindado ahora mismo"
-              : d.clause > freeBudget ? `Te faltan ${r1(d.clause - freeBudget)} M€`
-                : `Pagar cláusula · ${d.clause} M€`}
+            {!canTrade ? "Mercado cerrado"
+              : d.clause_locked ? "Blindado ahora mismo"
+                : d.clause > freeBudget ? `Te faltan ${r1(d.clause - freeBudget)} M€`
+                  : `Pagar cláusula · ${d.clause} M€`}
           </button>
         )}
 
         {mine && mode === "view" && (
           <>
-            <button className="btn btn--ghost btn--block" onClick={() => setMode("raise")}>
+            <button className="btn btn--ghost btn--block" disabled={!canTrade}
+              onClick={() => setMode("raise")}>
               <IconLock size={17} />Subir cláusula
             </button>
-            <button className="btn btn--danger btn--block" onClick={() => setMode("sell")}>
+            <button className="btn btn--danger btn--block" disabled={!canTrade}
+              onClick={() => setMode("sell")}>
               Vender por {d.price} M€
             </button>
           </>
@@ -250,8 +262,8 @@ export function BidSheet({ listing, budget, busy, onClose, onBid, onCancel }: {
 }
 
 /* -------------------------------------------------------- plantilla rival */
-export function ManagerSheet({ data, free, onClose, onPlayer, onClause }: {
-  data: any; free: number; onClose: () => void;
+export function ManagerSheet({ data, free, canTrade = true, onClose, onPlayer, onClause }: {
+  data: any; free: number; canTrade?: boolean; onClose: () => void;
   onPlayer: (id: number) => void; onClause: (p: any) => void;
 }) {
   return (
@@ -268,7 +280,9 @@ export function ManagerSheet({ data, free, onClose, onPlayer, onClause }: {
         <SheetClose onClose={onClose} />
       </div>
       <p className="hint" style={{ margin: "12px 2px" }}>
-        Paga la cláusula y te lo llevas al momento. Tienes <b>{r1(free)} M€</b> libres.
+        {canTrade
+          ? <>Paga la cláusula y te lo llevas al momento. Tienes <b>{r1(free)} M€</b> libres.</>
+          : <>El mercado está cerrado por la jornada: las cláusulas vuelven cuando acabe.</>}
       </p>
       <div>
         {data.squad.map((p: any) => (
@@ -276,8 +290,8 @@ export function ManagerSheet({ data, free, onClose, onPlayer, onClause }: {
             tone={p.starter ? "starter" : undefined}
             right={p.clause_locked
               ? <span className="lockchip"><IconLock size={11} strokeWidth={2.4} />{lockLabel(p.clause_lock_mins)}</span>
-              : <button className={"btn btn--sm " + (p.clause <= free ? "btn--clause" : "btn--quiet")}
-                  disabled={p.clause > free}
+              : <button className={"btn btn--sm " + (p.clause <= free && canTrade ? "btn--clause" : "btn--quiet")}
+                  disabled={p.clause > free || !canTrade}
                   onClick={(e) => { e.stopPropagation(); onClause({ ...p, owner: data.manager }); }}>
                   <IconBolt size={13} strokeWidth={2.2} />{p.clause}
                 </button>} />
@@ -332,6 +346,84 @@ export function ClauseSheet({ p, free, lockH, busy, onClose, onConfirm }: {
   );
 }
 
+/* ------------------------------------------------- cómo se puntúa (reglas) */
+const DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+const hh = (h?: number) => `${String(h ?? 0).padStart(2, "0")}:00`;
+
+/** Las reglas de la liga en cristiano: de dónde salen los puntos y qué se puede hacer cuándo. */
+export function ScoringSheet({ lg, onClose }: { lg: any; onClose: () => void }) {
+  const wb = lg.win_bonus ?? 0;
+  return (
+    <Sheet onClose={onClose} title="Cómo se puntúa">
+      <div className="sheet__head" style={{ marginBottom: 6 }}>
+        <div className="sheet__body">
+          <h2>Cómo se puntúa</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            Jornada {lg.current_jornada} de {lg.max_jornada} · {lg.competition}
+            {lg.grupo ? ` · ${lg.grupo}` : ""}
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      <div className="formula">
+        <span className="formula__l">Puntos fantasy de un partido</span>
+        <span className="formula__v">VAL <em>+ {wb} si su equipo gana</em></span>
+      </div>
+
+      <p className="hint">
+        <b>VAL</b> es la valoración oficial de la FEB, tal cual sale en el acta:
+        <br />
+        (puntos + rebotes + asistencias + robos + tapones + faltas recibidas)
+        <br />
+        − (tiros fallados + pérdidas + tapones recibidos + faltas cometidas).
+      </p>
+      <p className="hint">
+        Cada jornada suman <b>solo tus {lg.lineup_size} titulares</b>. El banquillo no puntúa,
+        pero verás lo que habría hecho. Un jugador que no juega hace 0 y uno que juega mal
+        puede hacer negativos.
+      </p>
+
+      <Section>Calendario de la jornada</Section>
+      <ol className="steps">
+        <li>
+          <b>Mercado</b>
+          <span>Abre en cuanto acaba la jornada anterior y saca una tanda nueva cada día a
+            las {hh(lg.market_hour)}. Se puja en secreto, se ficha por cláusula y se vende.</span>
+        </li>
+        <li>
+          <b>Cierre, {lg.market_close_before_h} h antes</b>
+          <span>El mercado echa el cierre el día antes del primer partido. A partir de ahí
+            solo puedes cambiar el quinteto.</span>
+        </li>
+        <li>
+          <b>Primer salto · {DAYS[lg.play_weekday ?? 5]} a las {hh(lg.play_hour)}</b>
+          <span>Se cierra también el quinteto. Durante la jornada no se puede tocar nada.</span>
+        </li>
+        <li>
+          <b>Fin de jornada</b>
+          <span>Se puntúa sola en cuanto se han jugado todos los partidos. Si hay alguno
+            aplazado, la liga espera a que se dispute.</span>
+        </li>
+      </ol>
+
+      <Section>Precios</Section>
+      <p className="hint">
+        El precio de un jugador se mueve solo con lo que hace: mezcla su valoración media, su
+        forma reciente y su +/−, ajustado por los partidos que lleva jugados. Su cláusula es
+        ×{lg.clause_factor} ese valor.
+      </p>
+      {lg.sim_mode && (
+        <p className="hint">
+          Esta liga va en <b>modo simulación</b>: se juega la temporada{" "}
+          {lg.season}/{String((Number(lg.season) + 1) % 100).padStart(2, "0")} jornada a jornada,
+          así que solo ves las estadísticas hasta la jornada {lg.current_jornada}.
+        </p>
+      )}
+    </Sheet>
+  );
+}
+
 /* -------------------------------------- jornada de otro mánager (desglose) */
 export function ManagerJornadaSheet({ row, onClose }: { row: any; onClose: () => void }) {
   const players: any[] = row.players ?? [];
@@ -363,7 +455,9 @@ function JornadaLine({ p, bench }: { p: any; bench?: boolean }) {
       <Photo code={p.feb_code} name={p.name} variant="sm" />
       <div className="prow__body">
         <div className="prow__name">{prettyName(p.name)}</div>
-        <div className="prow__team">{prettyTeam(p.team)}</div>
+        <div className="prow__team">
+          {prettyTeam(p.team)}{p.gone ? " · ya no lo tiene" : ""}
+        </div>
       </div>
       {p.played ? <PfBox value={p.points} muted={bench} /> : <span className="dnp">No jugó</span>}
     </div>

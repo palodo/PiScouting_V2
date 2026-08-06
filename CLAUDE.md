@@ -73,6 +73,18 @@ crea una cuenta nueva en la app (registro con email+contraseña y elección de e
   (ingesta) a la vez. No lo quites o habrá "database is locked".
 - **Temporada 2025/26 finalizada**: todos los partidos están jugados, por eso el "próximo rival"
   usa el **simulador de jornada** de la página «Mi equipo».
+- **Fantasy: la liga va por fases** (`fantasy.league_state`), y de ahí cuelga todo lo demás:
+  `mercado` (tandas diarias, se ficha) → `alineacion` (mercado cerrado, solo quinteto) →
+  `jornada` (todo bloqueado hasta que se juegue, aplazamientos incluidos; se puntúa sola).
+  Como la temporada de la BBDD ya está jugada, en `sim_mode` el reloj es el calendario propio
+  de la liga (`play_weekday` + `play_hour`, semanal) y NO las fechas reales de los partidos.
+  Cualquier acción que mueva dinero o el quinteto pasa por `_require(...)`.
+- **Fantasy en simulación**: las estadísticas se recortan SIEMPRE a `current_jornada`
+  (`all_priced`, `player_detail`); si no, la ficha destripa partidos que en la liga no se han
+  jugado. Al tocar cualquier consulta nueva, mantener ese filtro.
+- **Columnas nuevas**: `db.init_db()` llama a `_add_missing_columns()`, que hace `ALTER TABLE
+  ADD COLUMN` de lo que falte (SQLite y Postgres). Añadir campos al modelo es seguro; renombrar
+  o borrar no está soportado.
 - **Informe PDF**: `backend/app/pdf_report.py` (ReportLab + Pillow, sin matplotlib), horizontal y
   visual. Endpoint `GET /api/scout/{id}/pdf`. Los mapas de tiro se pintan sobre la mitad derecha
   de `data/basket_court_edited.png`.

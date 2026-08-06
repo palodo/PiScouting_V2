@@ -419,6 +419,11 @@ class CreateLeagueBody(BaseModel):
     initial_squad: int = 5
     clause_factor: float = 2.0
     clause_lock_h: int = 24
+    # calendario: día/hora del primer partido de cada jornada y corte del mercado
+    play_weekday: int = 5
+    play_hour: int = 18
+    play_duration_h: int = 30
+    market_close_before_h: int = 24
 
 
 class JoinLeagueBody(BaseModel):
@@ -483,8 +488,8 @@ def fantasy_my_leagues(user: User = Depends(auth.get_current_user),
         fantasy_mod.sync_market(session, lg)
         members = session.exec(select(FantasyMember).where(
             FantasyMember.league_id == lg.id)).all()
-        out.append({**fantasy_mod.league_out(lg), "member_points": m.total_points,
-                    "members": len(members)})
+        out.append({**fantasy_mod.league_out(lg, fantasy_mod.league_state(session, lg)),
+                    "member_points": m.total_points, "members": len(members)})
     return out
 
 
@@ -501,10 +506,12 @@ def fantasy_create(body: CreateLeagueBody, user: User = Depends(auth.get_current
             market_weekday=body.market_weekday, market_hour=body.market_hour,
             market_duration_h=body.market_duration_h, market_size=body.market_size,
             initial_squad=body.initial_squad, clause_factor=body.clause_factor,
-            clause_lock_h=body.clause_lock_h)
+            clause_lock_h=body.clause_lock_h, play_weekday=body.play_weekday,
+            play_hour=body.play_hour, play_duration_h=body.play_duration_h,
+            market_close_before_h=body.market_close_before_h)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return fantasy_mod.league_out(lg)
+    return fantasy_mod.league_out(lg, fantasy_mod.league_state(session, lg))
 
 
 @app.post("/api/fantasy/leagues/join")
@@ -517,7 +524,7 @@ def fantasy_join(body: JoinLeagueBody, user: User = Depends(auth.get_current_use
     fallback = user.name or user.email.split("@")[0]
     fantasy_mod.join_league(session, lg, user.id, body.manager_name.strip() or fallback)
     fantasy_mod.sync_market(session, lg)
-    return fantasy_mod.league_out(lg)
+    return fantasy_mod.league_out(lg, fantasy_mod.league_state(session, lg))
 
 
 @app.get("/api/fantasy/leagues/{league_id}")
@@ -527,7 +534,7 @@ def fantasy_league_detail(league_id: int, user: User = Depends(auth.get_current_
     fantasy_mod.sync_market(session, lg)
     member = fantasy_mod.member_of(session, league_id, user.id)
     return {
-        "league": fantasy_mod.league_out(lg),
+        "league": fantasy_mod.league_out(lg, fantasy_mod.league_state(session, lg)),
         "is_owner": lg.owner_user_id == user.id,
         "standings": fantasy_mod.standings(session, lg),
         "my_member_id": member.id if member else None,

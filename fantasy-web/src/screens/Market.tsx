@@ -2,19 +2,19 @@
    Mercado: subastas de la tanda del día y escaparate de cláusulas (clausulazos).
    ========================================================================== */
 import { useMemo, useState } from "react";
-import { IconBolt, IconClose, IconLock, IconMarket, IconPlay, IconSearch } from "../icons";
-import { PlayerRow, fp, lockLabel } from "../parts";
-import { Empty, Segmented, SkeletonList, fmtWhen, useNow } from "../ui";
+import { IconBolt, IconClose, IconLock, IconMarket, IconPlay, IconSearch, IconSquad } from "../icons";
+import { PlayerRow, PriceBox, fp, lockLabel, phaseInfo } from "../parts";
+import { Empty, Segmented, SkeletonList, fmtWhen, useCountdown, useNow } from "../ui";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
 export default function MarketTab({
-  lg, market, clauses, admin, busy, closes, opens, view, onView,
+  lg, market, clauses, admin, busy, view, onView,
   onOpenPlayer, onBid, onClause, onForceOpen, onForceClose,
 }: any) {
   return (
     <>
-      <MarketHead lg={lg} market={market} admin={admin} busy={busy} closes={closes} opens={opens}
+      <MarketHead lg={lg} market={market} admin={admin} busy={busy}
         onForceOpen={onForceOpen} onForceClose={onForceClose} />
 
       <div style={{ margin: "12px 0" }}>
@@ -26,41 +26,55 @@ export default function MarketTab({
 
       {view === "subastas"
         ? <Auctions lg={lg} market={market} busy={busy} onOpenPlayer={onOpenPlayer} onBid={onBid} />
-        : <Clauses data={clauses} busy={busy} onOpenPlayer={onOpenPlayer} onClause={onClause} />}
+        : <Clauses lg={lg} data={clauses} busy={busy} onOpenPlayer={onOpenPlayer} onClause={onClause} />}
     </>
   );
 }
 
 /* ------------------------------------------------------------ cuenta atrás */
-function MarketHead({ lg, market, admin, busy, closes, opens, onForceOpen, onForceClose }: any) {
+function MarketHead({ lg, market, admin, busy, onForceOpen, onForceClose }: any) {
   const now = useNow(5000);
+  const ph = phaseInfo(lg);
+  const left0 = useCountdown(ph.until);
+  const abierto = ph.phase === "mercado" && lg.market_open;
+
+  // Barra de progreso de la tanda que está en marcha.
   const from = market?.opens_at ?? lg.market_opens_at;
   const to = market?.closes_at ?? lg.market_closes_at;
   let left = 100;
-  if (lg.market_open && from && to) {
+  if (abierto && from && to) {
     const a = new Date(from).getTime(), b = new Date(to).getTime();
     left = Math.min(100, Math.max(0, 100 - ((now - a) / (b - a)) * 100));
   }
+
   return (
-    <div className={"mkt" + (lg.market_open ? "" : " mkt--closed")}>
+    <div className={"mkt" + (abierto ? "" : " mkt--closed") + (ph.phase === "jornada" ? " mkt--live" : "")}>
       <div className="mkt__k">
-        <span className={"livedot" + (lg.market_open ? "" : " livedot--off")} />
-        {lg.market_open ? "Mercado abierto · cierra en" : "Mercado cerrado · abre en"}
+        <span className={"livedot" + (ph.live ? "" : " livedot--off")} />
+        {ph.title}
       </div>
-      <div className="mkt__time num">{lg.market_open ? closes : (opens ?? "—")}</div>
+      <div className="mkt__time num">{left0 ?? "—"}</div>
       <div className="mkt__sub">
-        {lg.market_open
+        {abierto
           ? `${market?.listings?.length ?? 0} jugadores a subasta · gana la puja más alta`
-          : `Próxima apertura ${fmtWhen(lg.market_opens_at)} · ${lg.market_size} jugadores`}
+          : ph.note}
       </div>
-      {lg.market_open && <div className="progress"><div className="progress__fill" style={{ width: `${left}%` }} /></div>}
+      {abierto && (
+        <>
+          <div className="progress"><div className="progress__fill" style={{ width: `${left}%` }} /></div>
+          <div className="mkt__sub" style={{ marginTop: 8 }}>
+            Cierra por la jornada {fmtWhen(lg.market_deadline)}.
+          </div>
+        </>
+      )}
       {admin && (
         <div style={{ marginTop: 12 }}>
           {lg.market_open
             ? <button className="btn btn--sm btn--quiet" disabled={busy} onClick={onForceClose}>
                 <IconClose size={14} />Cerrar ya y resolver pujas
               </button>
-            : <button className="btn btn--sm btn--quiet" disabled={busy} onClick={onForceOpen}>
+            : <button className="btn btn--sm btn--quiet" disabled={busy || ph.phase !== "mercado"}
+                onClick={onForceOpen}>
                 <IconPlay size={13} />Abrir mercado ya
               </button>}
         </div>
@@ -71,6 +85,22 @@ function MarketHead({ lg, market, admin, busy, closes, opens, onForceOpen, onFor
 
 /* ----------------------------------------------------------------- subastas */
 function Auctions({ lg, market, busy, onOpenPlayer, onBid }: any) {
+  const ph = phaseInfo(lg);
+  if (ph.phase === "alineacion") {
+    return (
+      <Empty icon={<IconSquad size={22} />} title={`El mercado ya está cerrado para la jornada ${ph.j}`}>
+        Los fichajes se acabaron. Hasta el primer partido solo puedes retocar el quinteto:
+        ve a la pestaña Equipo.
+      </Empty>
+    );
+  }
+  if (ph.phase === "jornada") {
+    return (
+      <Empty icon={<IconMarket size={22} />} title={`Jornada ${ph.j} en juego`}>
+        {ph.note} El mercado vuelve en cuanto termine.
+      </Empty>
+    );
+  }
   if (!lg.market_open) {
     return (
       <Empty icon={<IconMarket size={22} />} title="El mercado está cerrado">
@@ -103,9 +133,12 @@ function Auctions({ lg, market, busy, onOpenPlayer, onBid }: any) {
         </div>
       )}
 
+      {/* En el mercado manda lo que cuesta: precio en la caja grande y los PF de apoyo. */}
       {market.listings.map((l: any) => (
         <PlayerRow key={l.listing_id} p={l} onOpen={() => onOpenPlayer(l.player_id)}
-          tone={l.my_bid != null ? "bid" : undefined}
+          tone={l.my_bid != null ? "bid" : undefined} hidePrice
+          hero={<PriceBox value={l.price} />}
+          meta={<span className="prow__pf num">{fp(l).toFixed(1)} PF</span>}
           right={
             <button className={"btn btn--sm" + (l.my_bid != null ? " btn--pos" : "")} disabled={busy}
               onClick={(e) => { e.stopPropagation(); onBid(l); }}>
@@ -113,6 +146,11 @@ function Auctions({ lg, market, busy, onOpenPlayer, onBid }: any) {
             </button>
           } />
       ))}
+
+      <p className="hint" style={{ marginTop: 14 }}>
+        El precio es la puja mínima. Los PF son sus puntos fantasy por partido: es lo que
+        sumará si lo alineas.
+      </p>
     </>
   );
 }
@@ -120,10 +158,12 @@ function Auctions({ lg, market, busy, onOpenPlayer, onBid }: any) {
 /* ---------------------------------------------------------------- cláusulas */
 type Filter = "todos" | "puedo" | "libres";
 
-function Clauses({ data, busy, onOpenPlayer, onClause }: any) {
+function Clauses({ lg, data, busy, onOpenPlayer, onClause }: any) {
   const [filter, setFilter] = useState<Filter>("todos");
   const [q, setQ] = useState("");
   const free = data ? r1((data.my_budget ?? 0) - (data.committed ?? 0)) : 0;
+  // Los clausulazos son mercado: se cierran a la vez que las subastas.
+  const abierto = (lg?.can_trade ?? true) as boolean;
 
   const list = useMemo(() => {
     const all: any[] = (data?.players ?? []).filter((p: any) => !p.mine);
@@ -140,6 +180,16 @@ function Clauses({ data, busy, onOpenPlayer, onClause }: any) {
 
   return (
     <>
+      {!abierto && (
+        <div className="notice notice--info" style={{ marginBottom: 12 }}>
+          <span className="notice__ico"><IconLock size={18} /></span>
+          <div>
+            <b>Cláusulas congeladas</b>
+            <span>{phaseInfo(lg).note} Podrás pagar cláusulas cuando vuelva a abrir el mercado.</span>
+          </div>
+        </div>
+      )}
+
       <div className="clausebar">
         <span style={{ color: "var(--clause)" }}><IconBolt size={19} strokeWidth={2} /></span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -189,10 +239,11 @@ function Clauses({ data, busy, onOpenPlayer, onClause }: any) {
               right={
                 p.clause_locked
                   ? <span className="lockchip"><IconLock size={11} strokeWidth={2.4} />{lockLabel(p.clause_lock_mins)}</span>
-                  : <button className={"btn btn--sm " + (afford ? "btn--clause" : "btn--quiet")}
-                      disabled={busy || !afford}
+                  : <button className={"btn btn--sm " + (afford && abierto ? "btn--clause" : "btn--quiet")}
+                      disabled={busy || !afford || !abierto}
                       onClick={(e) => { e.stopPropagation(); onClause(p); }}>
-                      <IconBolt size={13} strokeWidth={2.2} />{afford ? "Pagar" : "No llegas"}
+                      <IconBolt size={13} strokeWidth={2.2} />
+                      {!abierto ? "Cerrado" : afford ? "Pagar" : "No llegas"}
                     </button>
               } />
           );

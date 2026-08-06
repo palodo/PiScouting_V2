@@ -159,6 +159,17 @@ class FantasyLeague(SQLModel, table=True):
     market_closes_at: Optional[datetime] = None  # UTC
     market_open: bool = False
 
+    # --- calendario de la jornada ---
+    # La liga vive en tres fases: MERCADO (se ficha, tanda nueva cada día) → ALINEACIÓN
+    # (mercado cerrado, aún puedes tocar el quinteto) → JORNADA (se juega: todo bloqueado
+    # hasta que acabe, aplazamientos incluidos). Ver fantasy.league_state().
+    sim_mode: bool = True            # la temporada de la BBDD ya está jugada: calendario propio
+    play_weekday: int = 5            # 0=lunes … 6=domingo: día del primer partido de la jornada
+    play_hour: int = 18              # hora local (Europe/Madrid) del primer salto
+    play_duration_h: int = 30        # lo que dura la jornada desde ese primer salto
+    market_close_before_h: int = 24  # el mercado cierra estas horas antes (24 = el día antes)
+    kickoff_at: Optional[datetime] = None  # UTC: primer salto de la jornada current+1
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -241,6 +252,9 @@ class FantasyJornadaScore(SQLModel, table=True):
     member_id: int = Field(foreign_key="fantasy_members.id", index=True)
     jornada: int = Field(index=True)
     points: float = 0.0
+    # Quinteto que estaba alineado al puntuar (JSON con los player_id). Sin esto, mirar una
+    # jornada pasada usaba la plantilla de HOY y el desglose no cuadraba con el total.
+    starters: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

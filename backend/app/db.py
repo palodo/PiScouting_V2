@@ -51,12 +51,44 @@ def _seed_sqlite_if_missing() -> None:
     tmp.replace(db)
 
 
+def _add_missing_columns() -> None:
+    """Añade las columnas nuevas del modelo que falten en la BBDD.
+
+    `create_all` crea tablas, pero NO altera las que ya existen: sin esto, una BBDD viva
+    (la del volumen de la VM, con sus ligas y usuarios) se queda con el esquema antiguo y
+    el backend revienta al leer un campo nuevo. Solo se añaden columnas (con su valor por
+    defecto); nunca se borra ni se cambia nada, así que es seguro ejecutarlo en cada arranque.
+    """
+    from sqlalchemy import inspect, text
+    from sqlalchemy.schema import CreateColumn
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table in SQLModel.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            have = {c["name"] for c in inspector.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                ddl = CreateColumn(col).compile(engine).string
+                # Una columna añadida a una tabla con filas no puede ser NOT NULL sin default.
+                ddl = ddl.replace(" NOT NULL", "")
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN {ddl}'))
+                default = getattr(col.default, "arg", None)
+                if default is not None and not callable(default):
+                    conn.execute(text(f'UPDATE "{table.name}" SET "{col.name}" = :v'
+                                      f' WHERE "{col.name}" IS NULL'), {"v": default})
+
+
 def init_db() -> None:
-    """Siembra (si hace falta) y crea las tablas que no existan."""
+    """Siembra (si hace falta), crea las tablas que no existan y migra las columnas nuevas."""
     _seed_sqlite_if_missing()
     from . import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _add_missing_columns()
 
 
 def get_session() -> Iterator[Session]:

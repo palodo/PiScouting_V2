@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Me } from "../App";
 import { IconAlert, IconArrowLeft, IconLogout, IconTrophy } from "../icons";
+import { phaseInfo } from "../parts";
 import { Brand, Empty, Segmented, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
+
+const DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
 const monogram = (s: string) =>
   s.trim().split(/\s+/).filter((w) => w.length > 2).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
@@ -57,7 +60,7 @@ export default function Home({ me, onOpen, onLogout }: {
                   </span>
                   {l.market_open
                     ? <span className="badge badge--live"><span className="livedot" />Mercado</span>
-                    : <span className="badge">J{l.current_jornada}</span>}
+                    : <span className="badge">{phaseInfo(l).chip}</span>}
                 </div>
                 <div className="leaguecard__stats">
                   <div><b className="num">{l.member_points}</b><span>tus puntos</span></div>
@@ -102,6 +105,7 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
     market_weekday: 4, market_hour: 20, market_duration_h: 24, market_size: 10,
     budget: 100, squad_size: 10, lineup_size: 5, initial_squad: 5,
     clause_factor: 2.0, clause_lock_h: 24,
+    play_weekday: 5, play_hour: 18, play_duration_h: 30, market_close_before_h: 24,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -189,8 +193,49 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
           </label>
         </div>
         <p className="hint" style={{ margin: "12px 0 0" }}>
-          El mercado abre <b>todos los días</b> a las {String(f.market_hour).padStart(2, "0")}:00
-          durante {f.market_duration_h} h. El primero se abre nada más crear la liga.
+          Sale una <b>tanda nueva cada día</b> a las {String(f.market_hour).padStart(2, "0")}:00.
+          La primera, nada más crear la liga.
+        </p>
+      </div>
+
+      <Section>Jornada</Section>
+      <div className="card card--pad">
+        <div className="grid2">
+          <label className="field">
+            <span className="field__label">Se juega el</span>
+            <select className="select" value={f.play_weekday}
+              onChange={(e) => set("play_weekday", Number(e.target.value))}>
+              {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">Primer partido</span>
+            <select className="select" value={f.play_hour}
+              onChange={(e) => set("play_hour", Number(e.target.value))}>
+              {Array.from({ length: 24 }, (_, h) =>
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="grid2">
+          <label className="field" style={{ marginBottom: 0 }}>
+            <span className="field__label">El mercado cierra</span>
+            <select className="select" value={f.market_close_before_h}
+              onChange={(e) => set("market_close_before_h", Number(e.target.value))}>
+              {[6, 12, 24, 48].map((h) => <option key={h} value={h}>{h} h antes</option>)}
+            </select>
+          </label>
+          <label className="field" style={{ marginBottom: 0 }}>
+            <span className="field__label">Dura la jornada</span>
+            <select className="select" value={f.play_duration_h}
+              onChange={(e) => set("play_duration_h", Number(e.target.value))}>
+              {[24, 30, 48, 72].map((h) => <option key={h} value={h}>{h} h</option>)}
+            </select>
+          </label>
+        </div>
+        <p className="hint" style={{ margin: "12px 0 0" }}>
+          El mercado cierra {f.market_close_before_h} h antes del primer partido; el quinteto,
+          al empezar la jornada. Mientras se juega no se toca nada, y se puntúa sola al acabar.
         </p>
       </div>
 

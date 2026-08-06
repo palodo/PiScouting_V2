@@ -506,6 +506,20 @@ input, select, textarea { font-family: inherit; }
 .pfbox--lg { min-width: 74px; padding: 8px 10px 6px; }
 .pfbox--lg b { font-size: var(--fs-2xl); }
 
+/* Lo que cuesta: misma caja que los PF, porque en el mercado es el número que manda. */
+.pricebox {
+  min-width: 62px; padding: 5px 8px 4px; border-radius: 12px; text-align: center;
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+}
+.pricebox b {
+  display: block; font-family: var(--display); font-size: var(--fs-xl); font-weight: 800;
+  line-height: 1.1; color: var(--accent); font-variant-numeric: tabular-nums;
+}
+.pricebox span {
+  display: block; font-size: 8.5px; font-weight: 800; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent); opacity: 0.75;
+}
+
 .photo {
   position: relative; width: 44px; height: 54px; border-radius: 11px; overflow: hidden; flex-shrink: 0;
   background: var(--surface-2); display: grid; place-items: center;
@@ -533,6 +547,12 @@ input, select, textarea { font-family: inherit; }
   border: 1px solid var(--accent-line);
 }
 .mkt--closed { background: var(--surface); border-color: var(--border); }
+/* Jornada en juego: nada que tocar, pero se ve que está pasando algo. */
+.mkt--live {
+  background: linear-gradient(150deg, var(--info-soft), var(--surface) 62%);
+  border-color: color-mix(in srgb, var(--info) 30%, transparent);
+}
+.mkt--live .mkt__k { color: var(--info); }
 .mkt__k {
   display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); font-weight: 800;
   letter-spacing: 0.09em; text-transform: uppercase; color: var(--accent);
@@ -660,6 +680,7 @@ input, select, textarea { font-family: inherit; }
 .lineup {
   display: flex; align-items: center; gap: 12px; padding: 13px 15px; margin: 10px 0 4px;
   border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border);
+  width: 100%; text-align: left; color: inherit;
 }
 .lineup__k {
   font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase;
@@ -789,6 +810,33 @@ input, select, textarea { font-family: inherit; }
   font-size: var(--fs-2xs); color: var(--text-3); text-transform: uppercase;
   letter-spacing: 0.07em; font-weight: 700;
 }
+
+/* Reglas: la fórmula de los puntos y el calendario de la jornada, en la hoja de ayuda. */
+.formula {
+  display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; margin-bottom: 12px;
+  border-radius: var(--r-md); background: var(--accent-soft); border: 1px solid var(--accent-line);
+}
+.formula__l {
+  font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent);
+}
+.formula__v { font-family: var(--display); font-size: var(--fs-xl); font-weight: 800; }
+.formula__v em { font-style: normal; font-size: var(--fs-md); color: var(--text-2); font-weight: 700; }
+
+.steps { list-style: none; counter-reset: step; margin: 0 0 6px; padding: 0; }
+.steps li {
+  position: relative; counter-increment: step; padding: 0 0 14px 34px;
+  border-left: 2px solid var(--border); margin-left: 11px;
+}
+.steps li:last-child { border-left-color: transparent; padding-bottom: 2px; }
+.steps li::before {
+  content: counter(step); position: absolute; left: -12px; top: -2px; width: 22px; height: 22px;
+  display: grid; place-items: center; border-radius: 50%; background: var(--surface-2);
+  border: 1px solid var(--border-2); font-family: var(--display); font-size: var(--fs-xs);
+  font-weight: 800; color: var(--text-2);
+}
+.steps b { display: block; font-size: var(--fs-base); margin-bottom: 2px; }
+.steps span { display: block; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; }
 
 .spark { display: flex; align-items: flex-end; gap: 5px; height: 86px; padding-top: 6px; }
 .spark__col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; justify-content: flex-end; }

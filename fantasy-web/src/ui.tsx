@@ -216,9 +216,13 @@ export function fmtWhen(iso: string | null | undefined) {
   if (!iso) return "—";
   const d = new Date(iso);
   const hoy = new Date();
-  const same = d.toDateString() === hoy.toDateString();
   const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return same ? `hoy a las ${hm}` : `${DAYS[d.getDay()]} a las ${hm}`;
+  if (d.toDateString() === hoy.toDateString()) return `hoy a las ${hm}`;
+  // más de una semana vista: "el viernes" ya no dice cuál, así que se pone la fecha
+  if (d.getTime() - hoy.getTime() > 6 * 86400000) {
+    return `el ${d.toLocaleDateString("es-ES", { day: "numeric", month: "short" })} a las ${hm}`;
+  }
+  return `${DAYS[d.getDay()]} a las ${hm}`;
 }
 
 export function relTime(iso: string) {

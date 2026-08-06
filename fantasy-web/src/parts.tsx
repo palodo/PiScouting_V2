@@ -30,18 +30,73 @@ export type RowPlayer = {
 export const fp = (p: { fp_avg?: number; val_avg?: number }) => p.fp_avg ?? p.val_avg ?? 0;
 export const fpForm = (p: { fp_form?: number; form?: number }) => p.fp_form ?? p.form ?? 0;
 
+/* --------------------------------------------------------------- fase de la liga */
+export type Phase = "mercado" | "alineacion" | "jornada" | "fin";
+
+/**
+ * En qué momento de la jornada está la liga. Una sola fuente para la cabecera, el mercado
+ * y el equipo, para que los tres cuenten lo mismo. El backend manda `phase`; si respondiera
+ * uno antiguo (sin fases), se cae al comportamiento de siempre: mercado abierto o cerrado.
+ */
+export function phaseInfo(lg: any) {
+  const phase: Phase = lg?.phase ?? "mercado";
+  const j = lg?.next_jornada ?? (lg?.current_jornada ?? 0) + 1;
+  if (phase === "fin") {
+    return { phase, j, chip: "Temporada completa", title: "Temporada completa", until: null,
+      note: "Ya no quedan jornadas por jugar.", live: false };
+  }
+  if (phase === "jornada") {
+    const pend: string[] = lg?.pending_matches ?? [];
+    return {
+      phase, j, chip: `J${j} en juego`, title: `Jornada ${j} en juego · acaba en`,
+      until: lg?.jornada_ends_at ?? null, live: true,
+      note: pend.length
+        ? `Falta por disputarse ${pend[0]}${pend.length > 1 ? ` y ${pend.length - 1} más` : ""}.`
+        : "Mientras se juega no se ficha ni se toca el quinteto.",
+    };
+  }
+  if (phase === "alineacion") {
+    return {
+      phase, j, chip: "Último cambio", title: `Jornada ${j} · empieza en`,
+      until: lg?.kickoff_at ?? null, live: false,
+      note: "Mercado cerrado. Puedes cambiar el quinteto hasta el primer partido.",
+    };
+  }
+  return {
+    phase, j, chip: lg?.market_open ? "Mercado" : "Mercado cerrado",
+    title: lg?.market_open ? "Mercado abierto · tanda nueva en" : "Mercado · abre en",
+    until: lg?.market_open ? (lg?.market_closes_at ?? null) : (lg?.market_opens_at ?? null),
+    live: Boolean(lg?.market_open),
+    note: `Se ficha hasta ${lg?.market_close_before_h ?? 24} h antes de la jornada ${j}.`,
+  };
+}
+
 export function lockLabel(mins?: number) {
   if (!mins || mins <= 0) return "";
   const h = Math.floor(mins / 60);
   return h > 0 ? `${h} h` : `${mins} min`;
 }
 
-/** El número que decide la liga, en grande y aislado del resto. */
+/**
+ * El número que decide la liga, en grande y aislado del resto. `muted` lo pinta apagado
+ * (banquillo, jugador que ya no puntúa) pero SIGUE enseñando sus puntos: saber que el
+ * suplente hizo 21 es justo lo que duele —y lo que te hace cambiar el quinteto.
+ */
 export function PfBox({ value, muted, label = "PF" }: { value: number; muted?: boolean; label?: string }) {
   return (
     <div className={"pfbox" + (muted ? " pfbox--muted" : "")}>
-      <b className="num">{muted ? "0" : value.toFixed(1)}</b>
+      <b className="num">{value.toFixed(1)}</b>
       <span>{label}</span>
+    </div>
+  );
+}
+
+/** Lo que cuesta. En el mercado es el dato que manda, así que va en la caja grande. */
+export function PriceBox({ value }: { value: number }) {
+  return (
+    <div className="pricebox">
+      <b className="num">{value}</b>
+      <span>M€</span>
     </div>
   );
 }
@@ -51,7 +106,7 @@ export function PfBox({ value, muted, label = "PF" }: { value: number; muted?: b
  * los puntos fantasy. Las medias de valoración y demás se han bajado a la ficha:
  * de un vistazo solo debe competir un número.
  */
-export function PlayerRow({ p, onOpen, right, tone, meta, hero, pf: pfValue }: {
+export function PlayerRow({ p, onOpen, right, tone, meta, hero, hidePrice, pf: pfValue }: {
   p: RowPlayer;
   onOpen?: () => void;
   right?: ReactNode;
@@ -59,6 +114,8 @@ export function PlayerRow({ p, onOpen, right, tone, meta, hero, pf: pfValue }: {
   meta?: ReactNode;
   /** Sustituye la caja de PF cuando la pantalla va de otra cosa (p. ej. cláusulas). */
   hero?: ReactNode;
+  /** Cuando el precio ya va en la caja grande, no se repite en la línea de datos. */
+  hidePrice?: boolean;
   pf?: number;
 }) {
   const cls = ["prow", onOpen ? "prow--tap" : "", tone ? `prow--${tone}` : ""].join(" ").trim();
@@ -72,7 +129,7 @@ export function PlayerRow({ p, onOpen, right, tone, meta, hero, pf: pfValue }: {
         <div className="prow__name">{prettyName(p.name)}</div>
         <div className="prow__team">{prettyTeam(p.team) || "—"}</div>
         <div className="prow__meta">
-          <span className="prow__price num">{p.price} M€</span>
+          {!hidePrice && <span className="prow__price num">{p.price} M€</span>}
           {meta}
           {!!p.bids && <span className="prow__bids"><IconGavel size={11} strokeWidth={2.2} />{p.bids}</span>}
           {p.departed && <span className="prow__gone">No puntúa</span>}

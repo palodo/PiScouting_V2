@@ -6,16 +6,18 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Me } from "../App";
 import {
-  IconActivity, IconAlert, IconArrowLeft, IconCheck, IconCopy, IconMarket,
+  IconActivity, IconAlert, IconArrowLeft, IconCheck, IconCopy, IconLock, IconMarket,
   IconPlay, IconSquad, IconStar, IconStarOn, IconTrophy,
 } from "../icons";
-import { ClauseMeta, Delta, FeedRow, PlayerRow, fp } from "../parts";
+import { ClauseMeta, Delta, FeedRow, PlayerRow, fp, phaseInfo } from "../parts";
 import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
 import MarketTab from "./Market";
 import TableTab from "./Table";
-import { BidSheet, ClauseSheet, ManagerJornadaSheet, ManagerSheet, PlayerSheet } from "./sheets";
+import {
+  BidSheet, ClauseSheet, ManagerJornadaSheet, ManagerSheet, PlayerSheet, ScoringSheet,
+} from "./sheets";
 
 type Tab = "equipo" | "mercado" | "liga" | "feed";
 const TABS: [Tab, (p: any) => any, string][] = [
@@ -46,6 +48,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [rivalFor, setRivalFor] = useState<any>(null);
   const [jornadaFor, setJornadaFor] = useState<any>(null);
   const [clauseFor, setClauseFor] = useState<any>(null);
+  const [scoring, setScoring] = useState(false);
   const [jr, setJr] = useState<any>(null);
   const inited = useRef(false);
 
@@ -73,8 +76,9 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 2800); return () => clearTimeout(t); }, [msg]);
   useEffect(() => { setJr(data?.jornada_ranking ?? null); }, [data?.jornada_ranking]);
 
-  const closes = useCountdown(market?.closes_at ?? data?.league?.market_closes_at ?? null);
-  const opens = useCountdown(data?.league?.market_opens_at ?? null);
+  // La fase (mercado / último cambio de quinteto / jornada en juego) manda en toda la pantalla.
+  const ph = phaseInfo(data?.league);
+  const phaseLeft = useCountdown(ph.until);
 
   if (!data) {
     return (
@@ -149,17 +153,17 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           <div className="appbar__title"><h1>{lg.name}</h1></div>
 
           <div className="metastrip">
-            <div className={"meta" + (lg.market_open ? " meta--live" : "")}>
+            <div className={"meta" + (ph.live ? " meta--live" : "")}>
               <span className="meta__k">
-                <span className={"livedot" + (lg.market_open ? "" : " livedot--off")} />
-                {lg.market_open ? "Cierra en" : "Abre en"}
+                <span className={"livedot" + (ph.live ? "" : " livedot--off")} />
+                {ph.chip}
               </span>
-              <span className="meta__v num">{lg.market_open ? closes : (opens ?? "—")}</span>
+              <span className="meta__v num">{phaseLeft ?? "—"}</span>
             </div>
-            <div className="meta">
+            <button className="meta" onClick={() => setScoring(true)}>
               <span className="meta__k">Jornada</span>
               <span className="meta__v num">{lg.current_jornada}<span className="muted">/{lg.max_jornada}</span></span>
-            </div>
+            </button>
             {data.my_budget != null && (
               <div className="meta meta--money">
                 <span className="meta__k">Saldo</span>
@@ -180,12 +184,13 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       <main className="wrap wrap--tabbed">
         {tab === "equipo" && (
           <TeamTab lg={lg} squad={squad} starters={starters} bench={bench} busy={busy}
-            onOpen={setPlayerFor} onToggle={toggleStarter} />
+            ph={ph} left={phaseLeft} onOpen={setPlayerFor} onToggle={toggleStarter}
+            onScoring={() => setScoring(true)} />
         )}
 
         {tab === "mercado" && (
           <MarketTab lg={lg} market={market} clauses={clauses} admin={admin} busy={busy}
-            closes={closes} opens={opens} view={marketView} onView={setMarketView}
+            view={marketView} onView={setMarketView}
             onOpenPlayer={setPlayerFor} onBid={setBidFor} onClause={setClauseFor}
             onForceOpen={() => act(() => api.openMarket(id), "Mercado abierto")}
             onForceClose={() => act(() => api.closeMarket(id), "Mercado cerrado y pujas resueltas")} />
@@ -238,7 +243,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       )}
 
       {rivalFor && (
-        <ManagerSheet data={rivalFor} free={freeBudget} onClose={() => setRivalFor(null)}
+        <ManagerSheet data={rivalFor} free={freeBudget} canTrade={lg.can_trade ?? true}
+          onClose={() => setRivalFor(null)}
           onPlayer={(pid) => { setRivalFor(null); setPlayerFor(pid); }}
           onClause={(p: any) => { setRivalFor(null); setClauseFor(p); }} />
       )}
@@ -246,6 +252,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       {jornadaFor && (
         <ManagerJornadaSheet row={jornadaFor} onClose={() => setJornadaFor(null)} />
       )}
+
+      {scoring && <ScoringSheet lg={lg} onClose={() => setScoring(false)} />}
 
       {bidFor && (
         <BidSheet listing={bidFor} busy={busy}
@@ -273,15 +281,18 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
 }
 
 /* ------------------------------------------------------------------ equipo */
-function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
+function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle, onScoring }: any) {
   const gone = squad.filter((p: any) => p.departed);
   const goneStarters = gone.filter((p: any) => p.starter);
   const lineupFp = r1(starters.reduce((a: number, p: any) => a + (p.departed ? 0 : fp(p)), 0));
+  const canLineup = (lg.can_lineup ?? true) as boolean;
 
   const StarBtn = ({ p }: { p: any }) => (
-    <button className={"iconbtn" + (p.starter ? " is-on" : "")} disabled={busy || p.departed}
-      title={p.departed ? "Ya no puntúa en esta conferencia"
-        : p.starter ? "Quitar del quinteto" : "Poner en el quinteto"}
+    <button className={"iconbtn" + (p.starter ? " is-on" : "")}
+      disabled={busy || p.departed || !canLineup}
+      title={!canLineup ? "El quinteto está cerrado"
+        : p.departed ? "Ya no puntúa en esta conferencia"
+          : p.starter ? "Quitar del quinteto" : "Poner en el quinteto"}
       onClick={(e) => { e.stopPropagation(); onToggle(p.player_id, p.starter); }}>
       {p.starter ? <IconStarOn size={19} /> : <IconStar size={19} />}
     </button>
@@ -289,6 +300,26 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
 
   return (
     <>
+      {ph.phase === "alineacion" && (
+        <div className="notice notice--info">
+          <span className="notice__ico"><IconAlert size={18} /></span>
+          <div>
+            <b>Última llamada para el quinteto</b>
+            <span>La jornada {ph.j} empieza en {left ?? "nada"}. Después no se
+              podrá tocar nada hasta que termine.</span>
+          </div>
+        </div>
+      )}
+      {ph.phase === "jornada" && (
+        <div className="notice notice--info">
+          <span className="notice__ico"><IconLock size={18} /></span>
+          <div>
+            <b>Jornada {ph.j} en juego</b>
+            <span>{ph.note} {left ? `Quedan ${left}.` : ""}</span>
+          </div>
+        </div>
+      )}
+
       <div className="court">
         <HalfCourt />
         {SLOTS.map((pos, i) => {
@@ -298,19 +329,21 @@ function TeamTab({ lg, squad, starters, bench, busy, onOpen, onToggle }: any) {
               className={"tok" + (p ? "" : " tok--empty") + (p?.departed ? " tok--gone" : "")}>
               <Photo code={p?.feb_code} name={p?.name} variant="tok" />
               <span className="tok__tag">{p ? prettyName(p.name).split(" ").slice(-1)[0] : "Libre"}</span>
-              {p && <span className="tok__sub num">{p.departed ? "0" : fp(p).toFixed(1)} PF</span>}
+              {p && <span className="tok__sub num">{fp(p).toFixed(1)} PF</span>}
             </div>
           );
         })}
       </div>
 
-      <div className="lineup">
-        <div style={{ flex: 1 }}>
+      <button className="lineup" onClick={onScoring}>
+        <div style={{ flex: 1, textAlign: "left" }}>
           <div className="lineup__k">Proyección por jornada</div>
-          <div className="lineup__note">Lo que suma tu quinteto con su media de puntos fantasy</div>
+          <div className="lineup__note">
+            Lo que suma tu quinteto con su media de puntos fantasy · cómo se calculan
+          </div>
         </div>
         <div className="lineup__v num">{lineupFp}</div>
-      </div>
+      </button>
 
       {gone.length > 0 && (
         <div className="notice">

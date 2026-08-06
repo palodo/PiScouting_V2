@@ -1,24 +1,36 @@
 """Fantasy FEB — motor de ligas por conferencia con mercado de subastas (estilo Biwenger).
 
-Cómo funciona el mercado:
-  - Cada liga elige DÍA de la semana y HORA (hora peninsular) a la que abre el mercado.
-  - Al abrir, salen `market_size` jugadores LIBRES elegidos al azar pero repartidos por
-    tramos de precio (siempre hay alguna estrella, gente media y chollos) → entretenido.
-  - Los mánagers PUJAN en secreto (se ve cuánta gente ha pujado, no el importe).
-  - Pasadas `market_duration_h` horas el mercado cierra: gana la puja más alta (a igualdad,
-    la primera). El resto no paga nada. Luego se programa la siguiente apertura.
-  - Todo se resuelve de forma perezosa (`sync_market`) en cada petición: no hace falta
-    ningún proceso en segundo plano.
+La liga gira en torno a la JORNADA y pasa por tres fases (ver `league_state`):
+
+  1. MERCADO — desde que acaba la jornada anterior hasta `market_close_before_h` horas antes
+     del primer partido de la siguiente (24 h por defecto: el día antes). Cada día sale una
+     tanda nueva de `market_size` jugadores libres, elegidos al azar pero repartidos por
+     tramos de precio. Se PUJA en secreto (se ve cuánta gente puja, no el importe) y al
+     cerrar cada tanda gana la puja más alta (a igualdad, la primera). Aquí también se ficha
+     por cláusula y se vende.
+  2. ALINEACIÓN — mercado ya cerrado, pero el quinteto se puede cambiar hasta el primer salto.
+  3. JORNADA — se está jugando: no se toca NADA (ni quinteto, ni pujas, ni cláusulas) hasta
+     que termine. Si hay partidos aplazados la jornada sigue abierta hasta que se disputen.
+     Cuando acaba se puntúa sola y se vuelve a la fase de mercado.
+
+Todo se resuelve de forma perezosa (`sync_market`) en cada petición: no hace falta ningún
+proceso en segundo plano.
+
+Modo simulación (`sim_mode`): la temporada de la BBDD ya está jugada, así que las fechas
+reales de los partidos no sirven de reloj. La liga usa su propio calendario semanal
+(`play_weekday` + `play_hour`) y las estadísticas se recortan siempre a `current_jornada`,
+que es lo que evita enseñar partidos que en la liga "aún no se han jugado".
 
 La valoración de jugadores es dinámica (VAL + forma + /- ponderado por fiabilidad) y los
 puntos de cada jornada son la VAL del jugador + bonus si su equipo ganó.
 """
 from __future__ import annotations
 
+import json
 import random
 import string
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import text as sa_text  # alias: `text` ya se usa como nombre de parámetro
@@ -309,6 +321,107 @@ def owned_player_ids(session: Session, league_id: int) -> set[int]:
     return {p.player_id for p in picks}
 
 
+# ============================ calendario de la jornada ============================
+def _at(day: date, hour: int, minute: int = 0) -> datetime:
+    """Una hora peninsular de ese día, en UTC naive."""
+    local = datetime(day.year, day.month, day.day, int(hour) % 24, minute, tzinfo=TZ)
+    return local.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _weekly_slot(after: datetime, weekday: int, hour: int) -> datetime:
+    """Siguiente <weekday> a las <hour> (hora peninsular) posterior a `after`, en UTC naive."""
+    local = after.replace(tzinfo=timezone.utc).astimezone(TZ)
+    cand = local.replace(hour=int(hour) % 24, minute=0, second=0, microsecond=0)
+    cand += timedelta(days=(int(weekday) % 7 - cand.weekday()) % 7)
+    if cand <= local:
+        cand += timedelta(days=7)
+    return cand.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def jornada_dates(session: Session, league: FantasyLeague, jornada: int) -> tuple:
+    """(primera, última) fecha de los partidos de esa jornada. (None, None) si no hay."""
+    q = select(Match.match_date).where(Match.competition == league.competition,
+                                       Match.season == league.season,
+                                       Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    days = [d for d in session.exec(q).all() if d]
+    return (min(days), max(days)) if days else (None, None)
+
+
+def _first_kickoff(league: FantasyLeague, now: datetime) -> datetime:
+    """Primer salto de la primera jornada de la liga: el próximo día de partido que deje
+    tiempo de mercado por delante (si no, la liga nacería con el mercado ya cerrado)."""
+    margin = timedelta(hours=league.market_close_before_h + 12)
+    return _weekly_slot(now + margin, league.play_weekday, league.play_hour)
+
+
+def jornada_window(session: Session, league: FantasyLeague, jornada: int) -> tuple:
+    """(primer salto, final previsto) de una jornada, en UTC naive.
+
+    Con la temporada en marcha manda el calendario real de la FEB (que además absorbe los
+    aplazamientos: si un partido se mueve, la jornada acaba más tarde). En simulación —o si
+    esa jornada no tiene fechas— manda el calendario semanal de la liga.
+    """
+    if not league.sim_mode:
+        first, last = jornada_dates(session, league, jornada)
+        if first:
+            # La FEB solo nos da el día, no la hora: se usa la hora de partido de la liga.
+            return _at(first, league.play_hour), _at(last, 23, 59)
+    start = league.kickoff_at or _first_kickoff(league, utcnow())
+    return start, start + timedelta(hours=league.play_duration_h)
+
+
+# Fases de la liga. El orden importa: es el ciclo por el que pasa cada jornada.
+PHASES = ("mercado", "alineacion", "jornada", "fin")
+
+
+def league_state(session: Session, league: FantasyLeague) -> dict:
+    """En qué momento de la jornada está la liga, y hasta cuándo.
+
+    Es la única fuente de verdad de lo que se puede y no se puede hacer: el mercado, las
+    cláusulas, las ventas y el quinteto miran aquí antes de dejar tocar nada.
+    """
+    now = utcnow()
+    nxt = league.current_jornada + 1
+    if league.current_jornada >= league.max_jornada:
+        return {"phase": "fin", "jornada": league.current_jornada, "kickoff_at": None,
+                "ends_at": None, "market_deadline": None, "until": None, "pending": []}
+
+    kickoff, ends = jornada_window(session, league, nxt)
+    deadline = kickoff - timedelta(hours=league.market_close_before_h)
+    pending: list[str] = []
+    if now < deadline:
+        phase, until = "mercado", deadline
+    elif now < kickoff:
+        phase, until = "alineacion", kickoff
+    else:
+        # La jornada no se da por terminada mientras le falte algún partido por jugarse:
+        # así un aplazamiento no deja a nadie con un cero que no le toca.
+        phase, until = "jornada", ends
+        pending = pending_matches(session, league, nxt)
+    return {"phase": phase, "jornada": nxt, "kickoff_at": kickoff, "ends_at": ends,
+            "market_deadline": deadline, "until": until, "pending": pending}
+
+
+def _phase_error(state: dict, what: str) -> str:
+    j = state["jornada"]
+    if state["phase"] == "fin":
+        return "La temporada ya está completa"
+    if state["phase"] == "alineacion":
+        return (f"El mercado está cerrado: la jornada {j} está a punto de empezar. "
+                f"Hasta el primer partido solo puedes cambiar el quinteto.")
+    return (f"La jornada {j} se está jugando: {what} cuando termine."
+            + (f" Falta por disputarse {state['pending'][0]}." if state["pending"] else ""))
+
+
+def _require(session: Session, league: FantasyLeague, *allowed: str, what: str) -> dict:
+    state = league_state(session, league)
+    if state["phase"] not in allowed:
+        raise ValueError(_phase_error(state, what))
+    return state
+
+
 # ============================ horario del mercado ============================
 def _next_slot(after: datetime, weekday: int, hour: int) -> datetime:
     """Siguiente apertura del mercado (hora peninsular) tras `after`, en UTC naive.
@@ -322,16 +435,31 @@ def _next_slot(after: datetime, weekday: int, hour: int) -> datetime:
     return cand.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _schedule_next_open(league: FantasyLeague, state: dict, after: datetime) -> None:
+    """Programa la próxima apertura: la tanda diaria siguiente si aún cabe entera antes del
+    corte de la jornada, y si no la primera de después de que se juegue."""
+    nxt = _next_slot(after, league.market_weekday, league.market_hour)
+    if state["market_deadline"] and nxt >= state["market_deadline"]:
+        nxt = (_next_slot(state["ends_at"], league.market_weekday, league.market_hour)
+               if state["ends_at"] else None)
+    league.market_opens_at = nxt
+    league.market_closes_at = None
+
+
 def _log(session: Session, league_id: int, kind: str, text: str) -> None:
     session.add(FantasyEvent(league_id=league_id, kind=kind, text=text))
 
 
-def _open_round(session: Session, league: FantasyLeague, now: datetime) -> None:
-    """Saca una tanda aleatoria de jugadores libres, repartida por tramos de precio."""
+def _open_round(session: Session, league: FantasyLeague, now: datetime,
+                deadline: Optional[datetime] = None) -> bool:
+    """Saca una tanda aleatoria de jugadores libres, repartida por tramos de precio.
+
+    `deadline` es el cierre del mercado de la jornada: una tanda nunca puede acabar más
+    tarde (si no, se estaría fichando con la jornada ya empezada)."""
     owned = owned_player_ids(session, league.id)
     pool = [r for r in all_priced(session, league) if r["player_id"] not in owned]
     if not pool:
-        return
+        return False
     rng = random.Random(f"{league.id}:{league.market_round + 1}:{league.season}")
     pool.sort(key=lambda r: r["price"], reverse=True)
     n = min(league.market_size, len(pool))
@@ -351,13 +479,18 @@ def _open_round(session: Session, league: FantasyLeague, now: datetime) -> None:
     league.market_round += 1
     league.market_open = True
     league.market_opens_at = now
-    league.market_closes_at = now + timedelta(hours=league.market_duration_h)
+    # La tanda dura hasta la hora de mercado del día siguiente (así el relevo cae siempre a
+    # la misma hora, aunque la tanda anterior empezara a deshoras), y nunca más allá del corte.
+    closes = min(now + timedelta(hours=league.market_duration_h),
+                 _next_slot(now, league.market_weekday, league.market_hour))
+    league.market_closes_at = min(closes, deadline) if deadline else closes
     for r in chosen[:n]:
         session.add(FantasyListing(league_id=league.id, round_no=league.market_round,
                                    player_id=r["player_id"], price=r["price"]))
     _log(session, league.id, "market",
-         f"🟢 Mercado abierto · {len(chosen[:n])} jugadores a subasta (jornada {league.market_round})")
+         f"🟢 Mercado abierto · {len(chosen[:n])} jugadores a subasta (tanda {league.market_round})")
     session.add(league)
+    return True
 
 
 def _resolve_round(session: Session, league: FantasyLeague) -> None:
@@ -409,21 +542,64 @@ def _resolve_round(session: Session, league: FantasyLeague) -> None:
 
 
 def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
-    """Abre/cierra el mercado según el reloj. Idempotente y perezoso."""
-    now = utcnow()
+    """Pone la liga en el estado que le toca por reloj. Idempotente y perezoso.
+
+    Hace tres cosas, en este orden: cerrar el mercado en cuanto se entra en la recta final
+    de la jornada, puntuar la jornada cuando ya se ha jugado entera, y abrir/cerrar las
+    tandas diarias mientras el mercado esté en fase de mercado.
+    """
     changed = False
-    for _ in range(10):  # guarda contra bucles
-        if league.market_open and league.market_closes_at and now >= league.market_closes_at:
+    if league.kickoff_at is None and league.current_jornada < league.max_jornada:
+        # Liga creada antes de que existiera el calendario (o en modo real sin fechas).
+        league.kickoff_at = _first_kickoff(league, utcnow())
+        session.add(league)
+        changed = True
+
+    for _ in range(12):  # guarda contra bucles
+        now = utcnow()
+        state = league_state(session, league)
+        phase = state["phase"]
+
+        # Fuera de la fase de mercado no puede quedar ninguna subasta viva.
+        if phase != "mercado" and league.market_open:
             _resolve_round(session, league)
-            league.market_opens_at = _next_slot(now, league.market_weekday, league.market_hour)
-            league.market_closes_at = None
+            _schedule_next_open(league, state, state["ends_at"] or now)
             changed = True
             continue
-        if not league.market_open and league.market_opens_at and now >= league.market_opens_at:
-            _open_round(session, league, now)
-            changed = True
-            continue
+
+        if phase == "jornada":
+            # Jugada entera (y sin aplazamientos pendientes): se puntúa sola.
+            if now >= state["ends_at"] and not state["pending"] and advance(session, league).get("ok"):
+                changed = True
+                continue
+            break
+
+        if phase == "mercado":
+            # Sin hora de cierre la tanda se quedaría abierta para siempre: se cierra ya.
+            if league.market_open and (league.market_closes_at is None
+                                       or now >= league.market_closes_at):
+                _resolve_round(session, league)
+                # Relevo inmediato: mientras dure la fase de mercado siempre hay subastas
+                # vivas; lo que cambia cada día es la tanda de jugadores.
+                league.market_opens_at, league.market_closes_at = now, None
+                changed = True
+                continue
+            if not league.market_open and (league.market_opens_at is None
+                                           or now >= league.market_opens_at):
+                # Una tanda de diez minutos no la juega nadie: si ya no cabe antes del
+                # corte, se espera a la ventana de mercado de la jornada siguiente.
+                if state["market_deadline"] - now >= timedelta(hours=1) \
+                        and _open_round(session, league, now, state["market_deadline"]):
+                    changed = True
+                    continue
+                league.market_opens_at = (_next_slot(state["ends_at"], league.market_weekday,
+                                                     league.market_hour)
+                                          if state["ends_at"] else None)
+                session.add(league)
+                changed = True
+                continue
         break
+
     if changed:
         session.commit()
         session.refresh(league)
@@ -454,9 +630,12 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
                   budget: float = 100.0, squad_size: int = 10, lineup_size: int = 5,
                   win_bonus: float = 4.0, start_jornada: Optional[int] = None,
                   market_weekday: int = 4, market_hour: int = 20,
-                  market_duration_h: int = 22, market_size: int = 10,
+                  market_duration_h: int = 24, market_size: int = 10,
                   initial_squad: int = 5, clause_factor: float = 2.0,
-                  clause_lock_h: int = 24, open_now: bool = True) -> FantasyLeague:
+                  clause_lock_h: int = 24, open_now: bool = True,
+                  sim_mode: bool = True, play_weekday: int = 5, play_hour: int = 18,
+                  play_duration_h: int = 30,
+                  market_close_before_h: int = 24) -> FantasyLeague:
     if competition not in FANTASY_COMPETITIONS:
         raise ValueError("Esa competición no está disponible para el fantasy.")
     mj = max_jornada(session, competition, grupo, season)
@@ -475,15 +654,22 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
         market_size=int(_clamp(market_size, 4, 30)),
         clause_factor=float(_clamp(clause_factor, 1.2, 5.0)),
         clause_lock_h=int(_clamp(clause_lock_h, 0, 168)),
+        sim_mode=bool(sim_mode),
+        play_weekday=int(_clamp(play_weekday, 0, 6)), play_hour=int(_clamp(play_hour, 0, 23)),
+        play_duration_h=int(_clamp(play_duration_h, 2, 168)),
+        market_close_before_h=int(_clamp(market_close_before_h, 0, 120)),
         # el primer mercado abre ya (para poder jugar desde el minuto uno); los siguientes
         # siguen el horario elegido
         market_opens_at=now if open_now else _next_slot(now, market_weekday, market_hour),
     )
+    league.kickoff_at = _first_kickoff(league, now)
     session.add(league)
     session.commit()
     session.refresh(league)
-    _log(session, league.id, "info", f"🏆 Liga creada · mercado todos los días "
-                                     f"a las {league.market_hour:02d}:00 ({league.market_duration_h}h)")
+    _log(session, league.id, "info",
+         f"🏆 Liga creada · jornada los {WEEKDAYS[league.play_weekday]} a las "
+         f"{league.play_hour:02d}:00 · mercado todos los días a las {league.market_hour:02d}:00 "
+         f"hasta {league.market_close_before_h} h antes")
     session.commit()
     join_league(session, league, owner_id, manager_name)
     sync_market(session, league)
@@ -572,11 +758,14 @@ def market(session: Session, league: FantasyLeague, member: Optional[FantasyMemb
             "my_bid": mine.amount if mine else None,
         })
     rows.sort(key=lambda r: r["price"], reverse=True)
+    state = league_state(session, league)
     return {
         "open": league.market_open,
         "round": league.market_round,
-        "closes_at": league.market_closes_at.isoformat() + "Z" if league.market_closes_at else None,
-        "opens_at": league.market_opens_at.isoformat() + "Z" if league.market_opens_at else None,
+        "closes_at": _iso(league.market_closes_at),
+        "opens_at": _iso(league.market_opens_at),
+        "phase": state["phase"], "phase_until": _iso(state["until"]),
+        "next_jornada": state["jornada"], "pending_matches": state["pending"],
         "listings": rows,
         "my_budget": member.budget_remaining if member else None,
         "committed": committed_amount(session, member.id) if member else 0.0,
@@ -592,6 +781,7 @@ def committed_amount(session: Session, member_id: int) -> float:
 def place_bid(session: Session, league: FantasyLeague, member: FantasyMember,
               listing_id: int, amount: float) -> dict:
     sync_market(session, league)
+    _require(session, league, "mercado", what="podrás volver a pujar")
     if not league.market_open:
         raise ValueError("El mercado está cerrado")
     lst = session.get(FantasyListing, listing_id)
@@ -636,8 +826,7 @@ def close_market_now(session: Session, league: FantasyLeague) -> dict:
     if not league.market_open:
         raise ValueError("El mercado ya está cerrado")
     _resolve_round(session, league)
-    league.market_opens_at = _next_slot(utcnow(), league.market_weekday, league.market_hour)
-    league.market_closes_at = None
+    _schedule_next_open(league, league_state(session, league), utcnow())
     session.add(league)
     session.commit()
     session.refresh(league)
@@ -649,7 +838,8 @@ def open_market_now(session: Session, league: FantasyLeague) -> dict:
     sync_market(session, league)
     if league.market_open:
         raise ValueError("El mercado ya está abierto")
-    _open_round(session, league, utcnow())
+    state = _require(session, league, "mercado", what="volverá a haber mercado")
+    _open_round(session, league, utcnow(), state["market_deadline"])
     session.commit()
     session.refresh(league)
     return {"ok": True, "round": league.market_round}
@@ -676,6 +866,8 @@ def pay_clause(session: Session, league: FantasyLeague, member: FantasyMember,
                player_id: int) -> dict:
     """Clausulazo: te llevas al jugador de otro mánager pagando su cláusula (el dinero
     va íntegro al dueño)."""
+    sync_market(session, league)
+    _require(session, league, "mercado", what="podrás ir de clausulazo")
     pick = session.exec(select(FantasyPick).join(
         FantasyMember, FantasyMember.id == FantasyPick.member_id).where(
         FantasyMember.league_id == league.id, FantasyPick.player_id == player_id)).first()
@@ -712,6 +904,8 @@ def pay_clause(session: Session, league: FantasyLeague, member: FantasyMember,
 def raise_clause(session: Session, league: FantasyLeague, member: FantasyMember,
                  player_id: int, new_clause: float) -> dict:
     """Sube la cláusula de tu jugador. Cuesta un % de la subida."""
+    sync_market(session, league)
+    _require(session, league, "mercado", what="podrás blindarlo")
     pick = session.exec(select(FantasyPick).where(
         FantasyPick.member_id == member.id, FantasyPick.player_id == player_id)).first()
     if not pick:
@@ -733,7 +927,12 @@ def raise_clause(session: Session, league: FantasyLeague, member: FantasyMember,
 
 # ============================ ficha del jugador ============================
 def player_detail(session: Session, league: FantasyLeague, player_id: int) -> dict:
-    """Todas las estadísticas del jugador + su situación en la liga (dueño, cláusula)."""
+    """Estadísticas del jugador + su situación en la liga (dueño, cláusula).
+
+    Solo cuentan las jornadas ya disputadas EN LA LIGA (`current_jornada`): la temporada
+    de la base está entera, así que sin este corte la ficha destriparía partidos que en la
+    liga todavía no se han jugado.
+    """
     pl = session.get(Player, player_id)
     if not pl:
         raise ValueError("Jugador no encontrado")
@@ -741,7 +940,9 @@ def player_detail(session: Session, league: FantasyLeague, player_id: int) -> di
         select(PlayerMatchStat, Match, Team)
         .join(Match, Match.id == PlayerMatchStat.match_id)
         .join(Team, Team.id == PlayerMatchStat.team_id)
-        .where(PlayerMatchStat.player_id == player_id, Team.season == league.season)
+        .where(PlayerMatchStat.player_id == player_id, Team.season == league.season,
+               Match.jornada_num != None,  # noqa: E711
+               Match.jornada_num <= league.current_jornada)
     ).all()
     agg = {k: 0 for k in ("seconds", "pts", "val", "plus_minus", "treb", "oreb", "dreb", "ast",
                           "stl", "tov", "blk_for", "pf_committed", "t2m", "t2a", "t3m", "t3a",
@@ -854,6 +1055,8 @@ def member_squad(session: Session, league: FantasyLeague, member_id: int) -> lis
 
 
 def sell(session: Session, league: FantasyLeague, member: FantasyMember, player_id: int) -> dict:
+    sync_market(session, league)
+    _require(session, league, "mercado", what="podrás vender")
     pick = session.exec(select(FantasyPick).where(
         FantasyPick.member_id == member.id, FantasyPick.player_id == player_id)).first()
     if not pick:
@@ -870,6 +1073,9 @@ def sell(session: Session, league: FantasyLeague, member: FantasyMember, player_
 
 def set_lineup(session: Session, league: FantasyLeague, member: FantasyMember,
                starter_ids: list[int]) -> dict:
+    sync_market(session, league)
+    # El quinteto se puede tocar hasta el primer salto: es lo último que se cierra.
+    _require(session, league, "mercado", "alineacion", what="podrás cambiar el quinteto")
     if len(starter_ids) > league.lineup_size:
         raise ValueError(f"Solo puedes alinear {league.lineup_size} titulares")
     picks = picks_of(session, member.id)
@@ -903,6 +1109,29 @@ def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> li
     return faltan
 
 
+def _after_jornada(session: Session, league: FantasyLeague) -> None:
+    """Reprograma el calendario al puntuar una jornada: siguiente día de partido y
+    reapertura del mercado (con una tanda nueva, la de la semana que empieza)."""
+    now = utcnow()
+    # Puntuar con el mercado abierto (el botón del admin) dejaría una tanda huérfana, sin
+    # hora de cierre y por tanto imposible de resolver: se resuelve aquí y se abre otra.
+    if league.market_open:
+        _resolve_round(session, league)
+    league.market_closes_at = None
+    if league.current_jornada >= league.max_jornada:
+        league.kickoff_at = None
+        league.market_opens_at = None
+        return
+    # Se cuenta desde el salto anterior para no perder el día/hora de la liga aunque la
+    # jornada se puntúe tarde; si aun así se ha quedado atrás, se salta a la siguiente semana.
+    nxt = _weekly_slot(league.kickoff_at or now, league.play_weekday, league.play_hour)
+    while nxt <= now + timedelta(hours=league.market_close_before_h):
+        nxt = _weekly_slot(nxt, league.play_weekday, league.play_hour)
+    league.kickoff_at = nxt
+    # En cuanto la jornada queda puntuada se reabre el mercado: la semana empieza aquí.
+    league.market_opens_at = now
+
+
 def advance(session: Session, league: FantasyLeague) -> dict:
     if league.current_jornada >= league.max_jornada:
         return {"ok": False, "done": True, "message": "La temporada ya está completa"}
@@ -917,14 +1146,17 @@ def advance(session: Session, league: FantasyLeague) -> dict:
     members = session.exec(select(FantasyMember).where(FantasyMember.league_id == league.id)).all()
     breakdown = []
     for m in members:
-        gained = round(sum(pts.get(p.player_id, 0.0) for p in picks_of(session, m.id) if p.starter), 1)
+        starters = [p.player_id for p in picks_of(session, m.id) if p.starter]
+        gained = round(sum(pts.get(pid, 0.0) for pid in starters), 1)
         m.total_points = round(m.total_points + gained, 1)
         session.add(m)
-        # se guarda el desglose: en el miembro solo queda el acumulado
-        session.add(FantasyJornadaScore(league_id=league.id, member_id=m.id,
-                                        jornada=nxt, points=gained))
+        # se guarda el desglose (con el quinteto de ESE momento): en el miembro solo queda
+        # el acumulado, y la plantilla cambiará antes de que nadie mire atrás
+        session.add(FantasyJornadaScore(league_id=league.id, member_id=m.id, jornada=nxt,
+                                        points=gained, starters=json.dumps(starters)))
         breakdown.append({"member_id": m.id, "manager": m.manager_name, "gained": gained})
     league.current_jornada = nxt
+    _after_jornada(session, league)
     session.add(league)
     best = max(breakdown, key=lambda b: b["gained"], default=None)
     _log(session, league.id, "jornada",
@@ -948,27 +1180,36 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
         .join(FantasyMember, FantasyMember.id == FantasyJornadaScore.member_id)
         .where(FantasyJornadaScore.league_id == league.id, FantasyJornadaScore.jornada == j)
     ).all()
-    out = [{"member_id": m.id, "manager": m.manager_name, "points": sc.points} for sc, m in rows]
+    out = [{"member_id": m.id, "manager": m.manager_name, "points": sc.points,
+            "starters": json.loads(sc.starters) if sc.starters else None} for sc, m in rows]
     out.sort(key=lambda r: -r["points"])
     for i, r in enumerate(out):
         # mismos puntos, mismo puesto
         r["pos"] = out[i - 1]["pos"] if i and r["points"] == out[i - 1]["points"] else i + 1
 
-    # Cómo lo hizo cada jugador esa jornada. Ojo: la alineación no se guarda con
-    # histórico, así que se reconstruye con la plantilla ACTUAL del mánager; el total
-    # bueno es `points`, que sí quedó guardado al puntuar.
+    # Cómo lo hizo cada jugador esa jornada, con el quinteto que estaba puesto entonces
+    # (las jornadas puntuadas antes de guardarlo caen en la plantilla actual, como antes).
     if out:
         pts = jornada_points(session, league, j)
         info = {r["player_id"]: r for r in all_priced(session, league)}
         for r in out:
+            picks = picks_of(session, r["member_id"])
+            saved = r.pop("starters")
+            # los que jugaron esa jornada aunque ya no estén en la plantilla, primero
+            ids = list(saved or []) + [p.player_id for p in picks
+                                       if p.player_id not in (saved or [])]
+            was_starter = ((lambda pid: pid in saved) if saved is not None
+                           else (lambda pid: any(p.starter for p in picks if p.player_id == pid)))
             players = []
-            for p in picks_of(session, r["member_id"]):
-                d = info.get(p.player_id, {})
+            for pid in ids:
+                d = info.get(pid, {})
                 players.append({
-                    "player_id": p.player_id, "name": d.get("name", "?"),
+                    "player_id": pid, "name": d.get("name", "?"),
                     "feb_code": d.get("feb_code"), "team": d.get("team"),
-                    "points": pts.get(p.player_id, 0.0), "played": p.player_id in pts,
-                    "starter": p.starter,
+                    "points": pts.get(pid, 0.0), "played": pid in pts,
+                    "starter": was_starter(pid),
+                    # ya no lo tienes: se enseña igual, pero se avisa
+                    "gone": pid not in {p.player_id for p in picks},
                 })
             players.sort(key=lambda x: (not x["starter"], -x["points"]))
             r["players"] = players
@@ -1030,8 +1271,27 @@ def feed(session: Session, league_id: int, limit: int = 40) -> list[dict]:
              "at": e.created_at.isoformat() + "Z"} for e in rows]
 
 
-def league_out(league: FantasyLeague) -> dict:
-    return {
+def _iso(dt: Optional[datetime]) -> Optional[str]:
+    return dt.isoformat() + "Z" if dt else None
+
+
+def league_out(league: FantasyLeague, state: Optional[dict] = None) -> dict:
+    """Datos de la liga para la app. Con `state` (de `league_state`) viaja además la fase:
+    es lo que la web usa para saber si se puede pujar, vender o tocar el quinteto."""
+    extra = {}
+    if state:
+        extra = {
+            "phase": state["phase"], "next_jornada": state["jornada"],
+            "phase_until": _iso(state["until"]),
+            "kickoff_at": _iso(state["kickoff_at"]),
+            "jornada_ends_at": _iso(state["ends_at"]),
+            "market_deadline": _iso(state["market_deadline"]),
+            "pending_matches": state["pending"],
+            # atajos para la UI: qué está bloqueado ahora mismo
+            "can_trade": state["phase"] == "mercado",
+            "can_lineup": state["phase"] in ("mercado", "alineacion"),
+        }
+    return {**extra, **{
         "id": league.id, "name": league.name, "join_code": league.join_code,
         "owner_user_id": league.owner_user_id, "competition": league.competition,
         "grupo": league.grupo, "season": league.season, "budget": league.budget,
@@ -1042,8 +1302,12 @@ def league_out(league: FantasyLeague) -> dict:
         "market_weekday_name": "todos los días", "market_daily": True,
         "market_duration_h": league.market_duration_h, "market_size": league.market_size,
         "market_open": league.market_open, "market_round": league.market_round,
-        "market_opens_at": league.market_opens_at.isoformat() + "Z" if league.market_opens_at else None,
-        "market_closes_at": league.market_closes_at.isoformat() + "Z" if league.market_closes_at else None,
+        "market_opens_at": _iso(league.market_opens_at),
+        "market_closes_at": _iso(league.market_closes_at),
         "clause_factor": league.clause_factor, "clause_lock_h": league.clause_lock_h,
         "clause_raise_cost": league.clause_raise_cost,
-    }
+        "sim_mode": league.sim_mode, "play_weekday": league.play_weekday,
+        "play_weekday_name": WEEKDAYS[league.play_weekday % 7], "play_hour": league.play_hour,
+        "play_duration_h": league.play_duration_h,
+        "market_close_before_h": league.market_close_before_h,
+    }}

@@ -53,7 +53,10 @@ function JornadaView({ jr, myId, onJornada, onManager }: any) {
   const players: any[] = me?.players ?? [];
   const starters = players.filter((p) => p.starter);
   const bench = players.filter((p) => !p.starter);
-  const best = players.reduce((a, p) => (p.points > (a?.points ?? -99) ? p : a), null as any);
+  const top = (list: any[]) => list.reduce((a, p) => (p.points > (a?.points ?? -99) ? p : a), null as any);
+  const best = top(starters);
+  // el que se quedó fuera y lo habría cambiado todo: es la mitad de la gracia de mirar atrás
+  const regret = top(bench);
 
   return (
     <>
@@ -80,7 +83,11 @@ function JornadaView({ jr, myId, onJornada, onManager }: any) {
 
       {best && best.points > 0 && (
         <p className="hint" style={{ margin: "10px 2px 0" }}>
-          Tu mejor jugador fue <b>{prettyName(best.name)}</b> con <b>{r1(best.points)} PF</b>.
+          Tu mejor titular fue <b>{prettyName(best.name)}</b> con <b>{r1(best.points)} PF</b>.
+          {regret && regret.points > best.points && (
+            <> Y en el banquillo se quedó <b>{prettyName(regret.name)}</b> con{" "}
+              <b>{r1(regret.points)} PF</b>.</>
+          )}
         </p>
       )}
 
@@ -94,7 +101,8 @@ function JornadaView({ jr, myId, onJornada, onManager }: any) {
       </>}
 
       <p className="hint" style={{ marginTop: 10 }}>
-        El desglose usa tu plantilla de hoy; el total de la jornada es el que se guardó al puntuarla.
+        Es el quinteto que tenías puesto esa jornada. El banquillo no suma, pero ahí ves lo
+        que habría hecho.
       </p>
 
       <Section>Clasificación de la jornada</Section>
@@ -131,7 +139,9 @@ function JornadaRow({ p, bench }: { p: any; bench?: boolean }) {
       <Photo code={p.feb_code} name={p.name} variant="sm" />
       <div className="prow__body">
         <div className="prow__name">{prettyName(p.name)}</div>
-        <div className="prow__team">{prettyTeam(p.team)}</div>
+        <div className="prow__team">
+          {prettyTeam(p.team)}{p.gone ? " · ya no lo tienes" : ""}
+        </div>
       </div>
       {p.played
         ? <PfBox value={p.points} muted={bench} />
