@@ -495,7 +495,7 @@ export function ManagerJornadaSheet({ row, onClose, onPlayer }: {
         </p>
       )}
       {(known ? starters : players).map((p) => (
-        <JornadaLine key={p.player_id} p={p} onOpen={open && (() => open(p))} />
+        <JornadaLine key={p.player_id} p={p} bench={!known} onOpen={open && (() => open(p))} />
       ))}
       {bench.length > 0 && <>
         <Section right="no suman">Banquillo</Section>

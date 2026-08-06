@@ -117,8 +117,9 @@ function JornadaView({ jr, myId, onJornada, onManager, onPlayer }: any) {
       ) : (
         <>
           <Section right={`${me.points} pts`}>Tu plantilla esa jornada</Section>
+          {/* todos en gris: no se sabe cuáles contaron, y pintarlos como titulares sería mentir */}
           {players.map((p) => (
-            <JornadaRow key={p.player_id} p={p} onOpen={() => onPlayer(p.player_id, jr.jornada)} />
+            <JornadaRow key={p.player_id} p={p} bench onOpen={() => onPlayer(p.player_id, jr.jornada)} />
           ))}
           <p className="hint" style={{ marginTop: 10 }}>
             Esta jornada se puntuó antes de que la liga empezara a guardar el quinteto, así que

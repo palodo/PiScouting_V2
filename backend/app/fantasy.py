@@ -1256,6 +1256,30 @@ def advance(session: Session, league: FantasyLeague) -> dict:
             "done": league.current_jornada >= league.max_jornada}
 
 
+def _recover_starters(league: FantasyLeague, picks: list, pts: dict, target: float,
+                      jornada: int) -> Optional[list[int]]:
+    """Deduce el quinteto de una jornada que se puntuó antes de guardarlo.
+
+    Lo que sí quedó escrito es el TOTAL de esa jornada, y eso basta casi siempre: se buscan
+    los jugadores que tenía entonces (los fichados después quedan descartados) cuya suma da
+    exactamente ese total. Se recorren en un orden fijo —primero los que jugaron y más
+    puntuaron— para que la respuesta no dependa de nada que pueda cambiar, y el resultado se
+    guarda: se deduce una vez y ya no se vuelve a mover.
+    """
+    import itertools
+    cands = [p.player_id for p in picks if p.buy_jornada <= jornada]
+    # Solo vale un quinteto COMPLETO, y hace falta que sigan estando todos los candidatos:
+    # con menos, cualquier par que sumara el total pasaba por quinteto de la jornada. Si el
+    # mánager ya ha vendido a medio equipo, esa jornada no se puede reconstruir y punto.
+    if len(cands) < league.lineup_size:
+        return None
+    cands.sort(key=lambda pid: (pid not in pts, -pts.get(pid, 0.0), pid))
+    for combo in itertools.combinations(cands, league.lineup_size):
+        if abs(sum(pts.get(pid, 0.0) for pid in combo) - target) < 0.05:
+            return list(combo)
+    return None
+
+
 def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[int] = None) -> dict:
     """Clasificación de UNA jornada: quién sumó más ese fin de semana.
 
@@ -1271,6 +1295,7 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
         .where(FantasyJornadaScore.league_id == league.id, FantasyJornadaScore.jornada == j)
     ).all()
     out = [{"member_id": m.id, "manager": m.manager_name, "points": sc.points,
+            "score_id": sc.id,
             "starters": json.loads(sc.starters) if sc.starters else None} for sc, m in rows]
     out.sort(key=lambda r: -r["points"])
     for i, r in enumerate(out):
@@ -1286,9 +1311,20 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
     if out:
         pts = jornada_points(session, league, j)
         info = {r["player_id"]: r for r in all_priced(session, league)}
+        recuperadas = False
         for r in out:
             picks = picks_of(session, r["member_id"])
             saved = r.pop("starters")
+            score_id = r.pop("score_id")
+            if saved is None:
+                # jornada anterior a que se guardara el quinteto: se deduce del total y se
+                # deja escrito, para que a partir de ahora sea historia y no un cálculo
+                saved = _recover_starters(league, picks, pts, r["points"], j)
+                if saved is not None:
+                    sc = session.get(FantasyJornadaScore, score_id)
+                    sc.starters = json.dumps(saved)
+                    session.add(sc)
+                    recuperadas = True
             r["lineup_known"] = saved is not None
             if saved is not None:
                 # los que jugaron esa jornada aunque ya no estén en la plantilla, primero
@@ -1309,6 +1345,8 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
                 })
             players.sort(key=lambda x: (not x["starter"], -x["points"]))
             r["players"] = players
+        if recuperadas:
+            session.commit()
 
     js = sorted({s_.jornada for s_ in session.exec(
         select(FantasyJornadaScore).where(FantasyJornadaScore.league_id == league.id)).all()})
