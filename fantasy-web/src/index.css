@@ -149,8 +149,10 @@ html[data-theme="light"] {
 
 /* -------------------------------------------------------------------- base */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-/* El documento no scrollea: scrollea el contenido dentro del shell (ver .shell). */
-html, body, #root { height: 100%; }
+/* El documento no scrollea: scrollea el contenido dentro del shell (ver .shell). Todo mide
+   el viewport DINÁMICO: con `100%` el móvil devuelve el viewport de layout, que es más alto
+   que lo que se ve, y quedaba un hueco muerto por debajo de la barra de pestañas. */
+html, body, #root { height: 100%; height: 100dvh; }
 body {
   margin: 0;
   overflow: hidden;
@@ -186,7 +188,7 @@ input, select, textarea { font-family: inherit; }
    CONTENIDO, no el documento. Así el navegador del móvil nunca esconde ni saca su barra de
    direcciones al deslizar, que es lo que movía la barra de pestañas (pasaba igual con
    `fixed` que con `sticky`, porque el que se movía era el viewport). */
-.shell { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.shell { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .wrap { width: 100%; max-width: 560px; margin: 0 auto; padding: 14px 14px 26px; }
 .shell > .wrap {
   flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
@@ -195,7 +197,7 @@ input, select, textarea { font-family: inherit; }
 /* con una hoja abierta, el fondo no se mueve */
 html.sheet-open .shell > .wrap { overflow: hidden; }
 .centered {
-  height: 100dvh; overflow-y: auto; display: flex; align-items: center; justify-content: center;
+  height: 100%; overflow-y: auto; display: flex; align-items: center; justify-content: center;
   padding: 24px 18px calc(24px + var(--safe-b));
 }
 
