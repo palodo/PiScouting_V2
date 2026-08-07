@@ -144,8 +144,12 @@ export function Sheet({ children, onClose, title }: {
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", esc);
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", esc); document.body.style.overflow = ""; };
+    // el que scrollea es el contenido del shell, no el documento (ver index.css)
+    document.documentElement.classList.add("sheet-open");
+    return () => {
+      document.removeEventListener("keydown", esc);
+      document.documentElement.classList.remove("sheet-open");
+    };
   }, [onClose]);
   return (
     <div className="overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>

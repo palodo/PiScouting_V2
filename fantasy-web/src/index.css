@@ -149,9 +149,11 @@ html[data-theme="light"] {
 
 /* -------------------------------------------------------------------- base */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* El documento no scrollea: scrollea el contenido dentro del shell (ver .shell). */
 html, body, #root { height: 100%; }
 body {
   margin: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
@@ -180,21 +182,26 @@ input, select, textarea { font-family: inherit; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* ------------------------------------------------------------------ layout */
-/* La pantalla ocupa siempre el alto visible (100dvh, no 100%) y el contenido empuja: con una
-   página corta —el mercado cerrado, sin subastas— el móvil medía contra el viewport de
-   layout y la barra acababa a media pantalla. La barra va FIJA, que sticky se despega al
-   scrollear en el móvil. */
-.shell { min-height: 100dvh; display: flex; flex-direction: column; }
+/* La app va como una app: la pantalla mide justo el alto visible y lo que scrollea es el
+   CONTENIDO, no el documento. Así el navegador del móvil nunca esconde ni saca su barra de
+   direcciones al deslizar, que es lo que movía la barra de pestañas (pasaba igual con
+   `fixed` que con `sticky`, porque el que se movía era el viewport). */
+.shell { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 .wrap { width: 100%; max-width: 560px; margin: 0 auto; padding: 14px 14px 26px; }
-.wrap--tabbed { flex: 1; padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 26px); }
+.shell > .wrap {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+/* con una hoja abierta, el fondo no se mueve */
+html.sheet-open .shell > .wrap { overflow: hidden; }
 .centered {
-  min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+  height: 100dvh; overflow-y: auto; display: flex; align-items: center; justify-content: center;
   padding: 24px 18px calc(24px + var(--safe-b));
 }
 
 /* ------------------------------------------------------------------ appbar */
 .appbar {
-  position: sticky; top: 0; z-index: 20;
+  flex: 0 0 auto; z-index: 20;
   padding-top: var(--safe-t);
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: saturate(1.4) blur(14px);
@@ -250,7 +257,8 @@ input, select, textarea { font-family: inherit; }
 
 /* ------------------------------------------------------------------ tabbar */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  /* último hijo del shell: ya está abajo del todo por el flujo, sin fixed ni sticky */
+  flex: 0 0 auto; z-index: 30;
   display: flex; padding-bottom: var(--safe-b);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: saturate(1.4) blur(16px);
@@ -784,7 +792,18 @@ input, select, textarea { font-family: inherit; }
 .sheet__head h2 { font-size: var(--fs-xl); line-height: 1.2; }
 .sheet__close { position: absolute; }
 .sheet__body { flex: 1; min-width: 0; }
-.sheet__actions { display: grid; gap: 8px; margin-top: 14px; }
+/* Los botones (vender, cláusula, pujar) se quedan pegados al fondo de la hoja: con las
+   estadísticas debajo, quedaban fuera de pantalla y parecía que la opción no existía. */
+.sheet__actions {
+  display: grid; gap: 8px; margin-top: 14px;
+  position: sticky; bottom: calc(-20px - var(--safe-b));
+  padding: 10px 0 calc(20px + var(--safe-b));
+  background: linear-gradient(to bottom, transparent, var(--surface-3) 14px);
+}
+.sheet__actions::before {
+  content: ""; position: absolute; left: -16px; right: -16px; top: 0; height: 1px;
+  background: var(--border);
+}
 
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 12px;
   background: var(--border); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
