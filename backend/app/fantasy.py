@@ -40,6 +40,7 @@ from .config import FANTASY_COMPETITIONS
 from .models import (
     Team, Player, Match, PlayerMatchStat,
     FantasyLeague, FantasyMember, FantasyPick, FantasyListing, FantasyBid, FantasyEvent,
+    FantasyNotification,
     FantasyJornadaScore,
 )
 
@@ -483,8 +484,41 @@ def _schedule_next_open(league: FantasyLeague, state: dict, after: datetime) -> 
     league.market_closes_at = None
 
 
+_PARTICLES = {"de", "del", "la", "las", "los", "van", "der", "den", "da", "dos", "y", "i"}
+
+
+def _nice(name: Optional[str]) -> str:
+    """'A. PRIOR RUIZ' -> 'A. Prior Ruiz'. La FEB manda los nombres a gritos."""
+    raw = (name or "").split(",")[0].strip()
+    out = []
+    for i, w in enumerate(raw.lower().split()):
+        if w.endswith(".") or len(w) == 1:
+            out.append(w.upper())
+        elif i and w in _PARTICLES:
+            out.append(w)
+        else:
+            out.append(w[:1].upper() + w[1:])
+    return " ".join(out) or "?"
+
+
 def _log(session: Session, league_id: int, kind: str, text: str) -> None:
     session.add(FantasyEvent(league_id=league_id, kind=kind, text=text))
+
+
+
+def _notify(session: Session, league: FantasyLeague, member, kind: str,
+            title: str, body: str = "") -> None:
+    """Aviso personal para un mánager (acepta el FantasyMember o su id)."""
+    m = member if isinstance(member, FantasyMember) else session.get(FantasyMember, member)
+    if not m:
+        return
+    session.add(FantasyNotification(league_id=league.id, member_id=m.id, user_id=m.user_id,
+                                    kind=kind, title=title, body=body))
+
+
+def _members(session: Session, league_id: int) -> list[FantasyMember]:
+    return session.exec(select(FantasyMember).where(
+        FantasyMember.league_id == league_id)).all()
 
 
 def _open_round(session: Session, league: FantasyLeague, now: datetime,
@@ -526,6 +560,9 @@ def _open_round(session: Session, league: FantasyLeague, now: datetime,
                                    player_id=r["player_id"], price=r["price"]))
     _log(session, league.id, "market",
          f"🟢 Mercado abierto · {len(chosen[:n])} jugadores a subasta (tanda {league.market_round})")
+    for m in _members(session, league.id):
+        _notify(session, league, m, "market", "Mercado abierto",
+                f"{len(chosen[:n])} jugadores a subasta durante {league.market_duration_h} h")
     session.add(league)
     return True
 
@@ -557,6 +594,8 @@ def _resolve_round(session: Session, league: FantasyLeague) -> None:
             if b.status == "active":
                 b.status = "lost"
                 session.add(b)
+        pl_row = session.get(Player, lst.player_id)
+        pl_name = _nice(pl_row.name if pl_row else None)
         if winner:
             b, m = winner
             b.status = "won"
@@ -567,10 +606,18 @@ def _resolve_round(session: Session, league: FantasyLeague) -> None:
             lst.winner_member_id = m.id
             lst.sold_price = b.amount
             sold += 1
-            pl = session.get(Player, lst.player_id)
             _log(session, league.id, "signing",
-                 f"✍️ {m.manager_name} ficha a {pl.name if pl else '?'} por {b.amount} M€")
+                 f"✍️ {m.manager_name} ficha a {pl_name} por {b.amount} M€")
+            _notify(session, league, m, "signing", f"Has fichado a {pl_name}",
+                    f"Tu puja de {b.amount} M€ fue la más alta")
             session.add_all([b, m])
+        # a los que se quedaron a las puertas también hay que contárselo
+        for b in bids:
+            if winner and b.id == winner[0].id:
+                continue
+            _notify(session, league, b.member_id, "outbid", f"Te has quedado sin {pl_name}",
+                    f"Se lo llevó {winner[1].manager_name} por {winner[0].amount} M€"
+                    if winner else "Nadie pudo cerrar el fichaje")
         lst.resolved = True
         session.add(lst)
     league.market_open = False
@@ -766,6 +813,10 @@ def join_league(session: Session, league: FantasyLeague, user_id: int, manager_n
     session.refresh(m)
     _assign_initial_squad(session, league, m)
     _log(session, league.id, "join", f"👋 {manager_name} se une a la liga")
+    for other in _members(session, league.id):
+        if other.id != m.id:
+            _notify(session, league, other, "join", f"{manager_name} se une a la liga",
+                    f"Ya sois {len(_members(session, league.id))} mánagers")
     session.commit()
     return m
 
@@ -945,9 +996,12 @@ def pay_clause(session: Session, league: FantasyLeague, member: FantasyMember,
     _new_pick(session, league, member, player_id, amount, value, starters < league.lineup_size)
     session.add_all([member, owner])
     pl = session.get(Player, player_id)
+    pl_name = _nice(pl.name if pl else None)
     _log(session, league.id, "clause",
-         f"💥 CLAUSULAZO · {member.manager_name} se lleva a {pl.name if pl else '?'} "
+         f"💥 CLAUSULAZO · {member.manager_name} se lleva a {pl_name} "
          f"de {owner.manager_name} por {amount} M€")
+    _notify(session, league, owner, "clause", f"Te han clausulado a {pl_name}",
+            f"{member.manager_name} ha pagado {amount} M€ · el dinero es tuyo")
     session.commit()
     return {"ok": True, "paid": amount, "budget_remaining": member.budget_remaining}
 
@@ -1156,7 +1210,7 @@ def sell(session: Session, league: FantasyLeague, member: FantasyMember, player_
     session.delete(pick)
     session.add(member)
     pl = session.get(Player, player_id)
-    _log(session, league.id, "sale", f"💸 {member.manager_name} vende a {pl.name if pl else '?'} por {price} M€")
+    _log(session, league.id, "sale", f"💸 {member.manager_name} vende a {_nice(pl.name if pl else None)} por {price} M€")
     session.commit()
     return {"ok": True, "price": price, "budget_remaining": member.budget_remaining}
 
@@ -1251,6 +1305,16 @@ def advance(session: Session, league: FantasyLeague) -> dict:
     best = max(breakdown, key=lambda b: b["gained"], default=None)
     _log(session, league.id, "jornada",
          f"📅 Jornada {nxt} puntuada" + (f" · mejor: {best['manager']} ({best['gained']} pts)" if best else ""))
+    # a cada uno, lo suyo: sus puntos y en qué puesto ha quedado esa jornada
+    orden = sorted(breakdown, key=lambda b: -b["gained"])
+    for i, row in enumerate(orden):
+        pos = orden[i - 1]["pos"] if i and row["gained"] == orden[i - 1]["gained"] else i + 1
+        row["pos"] = pos
+        cuerpo = (f"{pos}º de {len(orden)}" if len(orden) > 1 else "")
+        if best and row["member_id"] == best["member_id"] and len(orden) > 1:
+            cuerpo = f"¡Has ganado la jornada! {pos}º de {len(orden)}"
+        _notify(session, league, row["member_id"], "jornada",
+                f"Jornada {nxt} · has hecho {row['gained']} puntos", cuerpo)
     session.commit()
     return {"ok": True, "jornada": nxt, "breakdown": breakdown,
             "done": league.current_jornada >= league.max_jornada}
@@ -1403,6 +1467,38 @@ def feed(session: Session, league_id: int, limit: int = 40) -> list[dict]:
                         .order_by(FantasyEvent.id.desc()).limit(limit)).all()
     return [{"id": e.id, "kind": e.kind, "text": e.text,
              "at": e.created_at.isoformat() + "Z"} for e in rows]
+
+
+
+def notifications(session: Session, user_id: int, limit: int = 40) -> dict:
+    """Los últimos avisos del usuario en todas sus ligas, y cuántos lleva sin leer."""
+    rows = session.exec(select(FantasyNotification)
+                        .where(FantasyNotification.user_id == user_id)
+                        .order_by(FantasyNotification.id.desc()).limit(limit)).all()
+    unread = len(session.exec(select(FantasyNotification).where(
+        FantasyNotification.user_id == user_id,
+        FantasyNotification.read == False)).all())  # noqa: E712
+    names: dict[int, str] = {}
+    items = []
+    for n in rows:
+        if n.league_id not in names:
+            lg = session.get(FantasyLeague, n.league_id)
+            names[n.league_id] = lg.name if lg else ""
+        items.append({"id": n.id, "league_id": n.league_id, "league": names[n.league_id],
+                      "kind": n.kind, "title": n.title, "body": n.body, "read": n.read,
+                      "at": n.created_at.isoformat() + "Z"})
+    return {"items": items, "unread": unread}
+
+
+def mark_notifications_read(session: Session, user_id: int) -> dict:
+    rows = session.exec(select(FantasyNotification).where(
+        FantasyNotification.user_id == user_id,
+        FantasyNotification.read == False)).all()  # noqa: E712
+    for n in rows:
+        n.read = True
+        session.add(n)
+    session.commit()
+    return {"ok": True, "read": len(rows)}
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:

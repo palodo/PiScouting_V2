@@ -492,6 +492,19 @@ def fantasy_competitions(season: str = DEFAULT_SEASON, session: Session = Depend
     return {"competitions": result}
 
 
+@app.get("/api/fantasy/notifications")
+def fantasy_notifications(limit: int = 40, user: User = Depends(auth.get_current_user),
+                          session: Session = Depends(get_session)):
+    """Campana: lo que te ha pasado a ti en todas tus ligas."""
+    return fantasy_mod.notifications(session, user.id, min(max(limit, 1), 100))
+
+
+@app.post("/api/fantasy/notifications/read")
+def fantasy_notifications_read(user: User = Depends(auth.get_current_user),
+                               session: Session = Depends(get_session)):
+    return fantasy_mod.mark_notifications_read(session, user.id)
+
+
 @app.get("/api/fantasy/leagues")
 def fantasy_my_leagues(user: User = Depends(auth.get_current_user),
                        session: Session = Depends(get_session)):

@@ -112,6 +112,15 @@ export const IconLogout = stroke(<>
   <path d="M14.3 6.6v-.8a2.3 2.3 0 0 0-2.3-2.3H6.1a2.3 2.3 0 0 0-2.3 2.3v12.4a2.3 2.3 0 0 0 2.3 2.3H12a2.3 2.3 0 0 0 2.3-2.3v-.8" />
   <path d="M20.2 12H9.5m7.1-3.6 3.6 3.6-3.6 3.6" />
 </>);
+export const IconBell = stroke(<>
+  <path d="M18.2 15.6V10.6a6.2 6.2 0 1 0-12.4 0v5l-1.5 2.6h15.4l-1.5-2.6Z" />
+  <path d="M9.7 20.5a2.5 2.5 0 0 0 4.6 0" />
+</>);
+export const IconBellOff = stroke(<>
+  <path d="M18.2 15.6V10.6a6.2 6.2 0 0 0-9-5.5" />
+  <path d="M5.8 9.4v6.2l-1.5 2.6h12.3" />
+  <path d="M9.7 20.5a2.5 2.5 0 0 0 4.6 0M3.4 3.4l17.2 17.2" />
+</>);
 export const IconSearch = stroke(<>
   <circle cx="11" cy="11" r="6.6" />
   <path d="m16 16 4.4 4.4" />

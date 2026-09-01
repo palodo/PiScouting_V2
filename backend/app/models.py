@@ -261,6 +261,23 @@ class FantasyJornadaScore(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class FantasyNotification(SQLModel, table=True):
+    """Aviso dirigido a UN mánager. El feed cuenta lo que pasa en la liga; esto cuenta
+    lo que te pasa a ti: te han clausulado, has ganado una puja, tu jornada..."""
+    __tablename__ = "fantasy_notifications"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    member_id: int = Field(foreign_key="fantasy_members.id", index=True)
+    # desnormalizado a propósito: la campana pregunta por usuario, no por liga
+    user_id: int = Field(foreign_key="users.id", index=True)
+    kind: str = Field(default="info", index=True)  # signing|outbid|clause|jornada|market|join
+    title: str = ""
+    body: str = ""
+    read: bool = Field(default=False, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class Shot(SQLModel, table=True):
     """Tiro individual con coordenadas de media pista (para mapas estáticos y animados)."""
     __tablename__ = "shots"

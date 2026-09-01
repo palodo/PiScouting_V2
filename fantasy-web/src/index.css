@@ -984,3 +984,35 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
   .wrap { padding-left: 18px; padding-right: 18px; }
   .tabbar { border-radius: 0; }
 }
+
+/* ------------------------------------------------------------ notificaciones */
+/* La campana avisa de lo que te pasa a TI; el feed cuenta lo de la liga. */
+.bell { position: relative; }
+.bell__badge {
+  position: absolute; top: 2px; right: 1px; min-width: 17px; height: 17px; padding: 0 4px;
+  display: grid; place-items: center; border-radius: 999px;
+  background: var(--neg); color: #fff; font-size: 9.5px; font-weight: 800; line-height: 1;
+  border: 2px solid var(--bg);
+}
+.notif {
+  display: flex; gap: 11px; padding: 12px 13px; margin-bottom: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.notif__ico {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  flex-shrink: 0; background: var(--surface-2); color: var(--text-2);
+}
+.notif--clause .notif__ico { background: var(--clause-soft); color: var(--clause); }
+.notif--signing .notif__ico { background: var(--pos-soft); color: var(--pos); }
+.notif--outbid .notif__ico { background: var(--neg-soft); color: var(--neg); }
+.notif--jornada .notif__ico { background: var(--info-soft); color: var(--info); }
+.notif--market .notif__ico { background: var(--accent-soft); color: var(--accent); }
+.notif__body { flex: 1; min-width: 0; }
+.notif__title { font-size: var(--fs-md); font-weight: 700; line-height: 1.35; }
+.notif__text { font-size: var(--fs-sm); color: var(--text-2); margin-top: 1px; }
+.notif__at { font-size: var(--fs-xs); color: var(--text-3); margin-top: 3px; }
+.notif.is-new { border-color: var(--accent-line); background: var(--accent-soft); }
+.notif.is-new .notif__title::after {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); margin-left: 7px; vertical-align: middle;
+}

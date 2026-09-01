@@ -4,6 +4,7 @@ import type { Me } from "../App";
 import { IconAlert, IconArrowLeft, IconLogout, IconTrophy } from "../icons";
 import { phaseInfo } from "../parts";
 import { Brand, Empty, Segmented, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
+import NotificationBell from "./Notifications";
 
 const DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
@@ -31,11 +32,12 @@ export default function Home({ me, onOpen, onLogout }: {
                   <IconArrowLeft size={18} />Mis ligas
                 </button>}
             <span style={{ flex: 1 }} />
-            {view === "list" && (
+            {view === "list" && <>
+              <NotificationBell />
               <button className="iconbtn" onClick={onLogout} aria-label="Cerrar sesión">
                 <IconLogout size={19} />
               </button>
-            )}
+            </>}
           </div>
         </div>
       </header>

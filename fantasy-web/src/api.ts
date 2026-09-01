@@ -54,6 +54,8 @@ export const api = {
   advance: (id: number) => post(`/fantasy/leagues/${id}/advance`),
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),
 
+  notifications: () => get<{ items: any[]; unread: number }>("/fantasy/notifications"),
+  readNotifications: () => post("/fantasy/notifications/read"),
   clauses: (id: number) => get(`/fantasy/leagues/${id}/clauses`),
   // con `jornada` la ficha trae además su partido de ese día
   player: (id: number, playerId: number, jornada?: number | null) =>
