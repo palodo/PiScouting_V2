@@ -11,7 +11,11 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- NO usar black-translucent: iOS dibuja la app bajo la barra de estado pero le da el
+         alto de la pantalla entera, así que todo baja ~50 px y esa franja se sale por abajo.
+         Lo primero que desaparece es la barra de pestañas. Con "default", iOS reserva él
+         mismo la barra de estado y el alto vuelve a ser el que se ve. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="PiFantasy" />
     <meta name="mobile-web-app-capable" content="yes" />
     <!-- lo ajusta la app según el tema activo (ver applyTheme en src/ui.tsx) -->
