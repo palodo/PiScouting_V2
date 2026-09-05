@@ -15,9 +15,14 @@ los boxscores de la FEB. Dos reglas fijan el equilibrio de la economía:
 Las probabilidades de "más de X" salen de una Poisson con la media del jugador, que es
 la distribución que siguen los recuentos de un partido (puntos, rebotes, asistencias,
 triples). Contrastado con la 2ª FEB ESTE: predice 52,3% donde la realidad dio 53,8%.
+
+El menú se reparte en tres BANDAS a propósito (ver `BANDAS`): unas cuantas cantadas que
+apenas pagan, unas cuantas a cara o cruz y alguna locura que casi nunca entra. Si todas
+rondaran el 50% elegir daría igual y no habría nada que decidir.
 """
 from __future__ import annotations
 
+import json
 import math
 import random
 from typing import Optional
@@ -31,8 +36,18 @@ MARGEN = 0.08          # se queda la casa; es lo que evita que la liga se infle
 STAKE_MAX = 2.0        # M€ jugados por jornada y mánager
 WIN_MAX = 2.0          # M€ de ganancia por jornada y mánager (el mismo: ver cabecera)
 BETS_MAX = 3           # apuestas por jornada: es un extra, no el juego
-CUOTA_MIN, CUOTA_MAX = 1.25, 6.0
+CUOTA_MIN, CUOTA_MAX = 1.05, 15.0
 STATS = {"pts": "puntos", "treb": "rebotes", "ast": "asistencias", "t3m": "triples"}
+
+# El menú tiene que tener de todo: cantadas que casi no pagan, monedas al aire y alguna
+# locura. Si todas rondaran el 50% todas se parecerían y elegir daría igual.
+BANDAS = {
+    "segura": (0.68, 0.88),
+    "normal": (0.38, 0.62),
+    "loca": (0.06, 0.22),
+}
+CUPOS = {"segura": 5, "normal": 6, "loca": 4}          # apuestas de jugador
+CUPOS_GANADOR = {"segura": 2, "normal": 2, "loca": 1}  # y de quién gana el partido
 
 
 def _poisson_mayor(lam: float, k: int) -> float:
@@ -72,92 +87,226 @@ def _jugadores_de_la_jornada(session: Session, league: FantasyLeague,
 
 def _medias(session: Session, league: FantasyLeague, equipos: list[int],
             hasta_jornada: int) -> dict[int, dict]:
-    """Medias por jugador hasta la jornada dada (sin mirar el futuro)."""
+    """Medias por jugador hasta la jornada dada (sin mirar el futuro).
+
+    Guarda también el partido a partido: para decidir si una apuesta es segura o una
+    locura no basta la media, hace falta saber cuántas veces ha pasado de verdad.
+    """
     if not equipos:
         return {}
     rows = session.exec(
         select(PlayerMatchStat.player_id, PlayerMatchStat.pts, PlayerMatchStat.treb,
                PlayerMatchStat.ast, PlayerMatchStat.t3m, PlayerMatchStat.seconds,
-               Player.name, PlayerMatchStat.team_id)
+               Player.name, Player.feb_code, PlayerMatchStat.team_id, Match.jornada_num)
         .join(Match, Match.id == PlayerMatchStat.match_id)
         .join(Player, Player.id == PlayerMatchStat.player_id)
         .where(PlayerMatchStat.team_id.in_(equipos),
                Match.jornada_num != None,           # noqa: E711
                Match.jornada_num < hasta_jornada)).all()
     acum: dict[int, dict] = {}
-    for pid, pts, treb, ast, t3m, seg, nombre, tid in rows:
+    for pid, pts, treb, ast, t3m, seg, nombre, code, tid, jnum in rows:
         d = acum.setdefault(pid, {"n": 0, "pts": 0, "treb": 0, "ast": 0, "t3m": 0,
-                                  "min": 0.0, "name": nombre, "team_id": tid})
+                                  "min": 0.0, "name": nombre, "code": code,
+                                  "team_id": tid, "juegos": []})
         d["n"] += 1
         d["pts"] += pts or 0
         d["treb"] += treb or 0
         d["ast"] += ast or 0
         d["t3m"] += t3m or 0
         d["min"] += (seg or 0) / 60.0
+        d["juegos"].append({"j": jnum or 0, "pts": pts or 0, "treb": treb or 0,
+                            "ast": ast or 0, "t3m": t3m or 0,
+                            "min": round((seg or 0) / 60.0), "team_id": tid})
+    for d in acum.values():
+        d["juegos"].sort(key=lambda g: g["j"])
+        d["team_id"] = d["juegos"][-1]["team_id"] or d["team_id"]   # su equipo de ahora
     return acum
+
+
+def _forma_equipos(session: Session, league: FantasyLeague, jornada: int) -> dict[int, list]:
+    """Partido a partido de cada equipo hasta la jornada: diferencia y si ganó."""
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num != None,           # noqa: E711
+                            Match.jornada_num < jornada,
+                            Match.home_score != None)            # noqa: E711
+    out: dict[int, list] = {}
+    for m in session.exec(q).all():
+        for tid, propio, ajeno in ((m.home_team_id, m.home_score, m.away_score),
+                                   (m.away_team_id, m.away_score, m.home_score)):
+            if tid:
+                out.setdefault(tid, []).append(
+                    {"j": m.jornada_num, "dif": (propio or 0) - (ajeno or 0)})
+    for v in out.values():
+        v.sort(key=lambda x: x["j"])
+    return out
+
+
+def _margen(forma: dict[int, list], team_id: Optional[int]) -> float:
+    v = forma.get(team_id) or []
+    return sum(x["dif"] for x in v) / len(v) if v else 0.0
+
+
+def _balance(forma: dict[int, list], team_id: Optional[int]) -> dict:
+    """Victorias-derrotas y las cinco últimas, para la ficha de la apuesta."""
+    v = forma.get(team_id) or []
+    ganados = sum(1 for x in v if x["dif"] > 0)
+    return {"pj": len(v), "v": ganados, "d": len(v) - ganados,
+            "margen": round(_margen(forma, team_id), 1),
+            "ultimos": ["V" if x["dif"] > 0 else "D" for x in v[-5:]][::-1]}
+
+
+def _rivales_de_la_jornada(session: Session, league: FantasyLeague,
+                           jornada: int) -> dict[int, dict]:
+    """team_id -> con quién juega esa jornada y si es en casa."""
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    out: dict[int, dict] = {}
+    for m in session.exec(q).all():
+        if not (m.home_team_id and m.away_team_id):
+            continue
+        local = session.get(Team, m.home_team_id)
+        visit = session.get(Team, m.away_team_id)
+        out[m.home_team_id] = {"rival_id": m.away_team_id,
+                               "rival": _corto(visit.name) if visit else "?", "casa": True}
+        out[m.away_team_id] = {"rival_id": m.home_team_id,
+                               "rival": _corto(local.name) if local else "?", "casa": False}
+    return out
+
+
+def _linea_para(lam: float, lo: float, hi: float) -> Optional[int]:
+    """La línea "más de k" cuya probabilidad cae dentro de la banda pedida.
+
+    Al subir k la probabilidad baja, así que hay como mucho un tramo válido: de él nos
+    quedamos con el que más se acerca al centro de la banda.
+    """
+    centro, mejor, mejor_d = (lo + hi) / 2, None, 9.9
+    for k in range(0, 45):
+        p = _poisson_mayor(lam, k)
+        if lo <= p <= hi and abs(p - centro) < mejor_d:
+            mejor, mejor_d = k, abs(p - centro)
+        if p < lo:
+            break
+    return mejor
 
 
 def generar_menu(session: Session, league: FantasyLeague, jornada: int) -> None:
     """Prepara las apuestas de la jornada si no están ya. Iguales para toda la liga."""
     ya = session.exec(select(FantasyBetOption).where(
         FantasyBetOption.league_id == league.id,
-        FantasyBetOption.jornada == jornada)).first()
-    if ya:
+        FantasyBetOption.jornada == jornada).order_by(FantasyBetOption.id)).all()
+    if ya and all(o.detail for o in ya):
         return
+    if ya:
+        # menú de la versión anterior (sin bandas ni datos). Se rehace, pero solo si
+        # nadie ha apostado todavía: una apuesta en juego manda sobre cualquier mejora.
+        jugadas = session.exec(select(FantasyBetLeg).where(
+            FantasyBetLeg.option_id.in_([o.id for o in ya]))).first()
+        if jugadas:
+            return
+        for o in ya:
+            session.delete(o)
+        session.commit()
 
     equipos = _jugadores_de_la_jornada(session, league, jornada)
     if not equipos:
         return
     medias = _medias(session, league, equipos, jornada)
+    forma = _forma_equipos(session, league, jornada)
+    rivales = _rivales_de_la_jornada(session, league, jornada)
     # solo gente con recorrido: con tres partidos la media no dice nada
     candidatos = [(pid, d) for pid, d in medias.items()
                   if d["n"] >= 5 and d["min"] / d["n"] >= 12]
     rng = random.Random(f"{league.id}:bets:{jornada}")
     rng.shuffle(candidatos)
     opciones: list[FantasyBetOption] = []
+    faltan = dict(CUPOS)
 
     for pid, d in candidatos:
-        if len(opciones) >= 10:
+        if not any(v > 0 for v in faltan.values()):
             break
-        stat = rng.choice(list(STATS.keys()))
-        lam = d[stat] / d["n"]
-        if lam < 1.2:                      # líneas de "más de 0" no tienen gracia
-            continue
-        # la línea que deja la probabilidad más cerca del 50%: ahí está lo interesante
-        linea = min(range(0, 45), key=lambda k: abs(_poisson_mayor(lam, k) - 0.5))
-        prob = _poisson_mayor(lam, linea)
-        if not (0.30 <= prob <= 0.70):
-            continue
-        opciones.append(FantasyBetOption(
-            league_id=league.id, jornada=jornada, kind="stat", player_id=pid,
-            team_id=d["team_id"], stat=stat, line=float(linea), prob=round(prob, 4),
-            odds=_cuota(prob),
-            label=f"{_corto(d['name'])} · más de {linea} {STATS[stat]}"))
+        # se empieza por la banda a la que más le falta, para que el menú salga variado
+        for banda in sorted([b for b, n in faltan.items() if n > 0], key=lambda b: -faltan[b]):
+            lo, hi = BANDAS[banda]
+            posibles = []
+            for stat in STATS:
+                lam = d[stat] / d["n"]
+                if lam < 1.2:          # líneas de "más de 0" no tienen gracia
+                    continue
+                k = _linea_para(lam, lo, hi)
+                if k is not None:
+                    posibles.append((stat, lam, k))
+            if not posibles:
+                continue
+            stat, lam, linea = rng.choice(posibles)
+            prob = _poisson_mayor(lam, linea)
+            valores = [g[stat] for g in d["juegos"]]
+            veces = sum(1 for v in valores if v > linea)
+            info = rivales.get(d["team_id"]) or {}
+            equipo = session.get(Team, d["team_id"]) if d["team_id"] else None
+            opciones.append(FantasyBetOption(
+                league_id=league.id, jornada=jornada, kind="stat", player_id=pid,
+                team_id=d["team_id"], stat=stat, line=float(linea), band=banda,
+                prob=round(prob, 4), odds=_cuota(prob),
+                label=f"{_corto(d['name'])} · más de {linea} {STATS[stat]}",
+                detail=json.dumps({
+                    "nombre": _nombre_largo(d["name"]), "code": d["code"],
+                    "equipo": _corto(equipo.name) if equipo else None,
+                    "logo": equipo.logo if equipo else None,
+                    "stat": STATS[stat], "linea": linea,
+                    "media": round(lam, 1), "pj": d["n"],
+                    "minutos": round(d["min"] / d["n"], 1),
+                    "veces": veces, "de": len(valores),
+                    "tope": max(valores) if valores else 0,
+                    "ultimos": valores[-5:][::-1],
+                    "rival": info.get("rival"), "casa": info.get("casa"),
+                }, ensure_ascii=False)))
+            faltan[banda] -= 1
+            break
 
-    # y quién gana cada partido
+    # y quién gana cada partido, con la misma idea: alguna cantada y alguna sorpresa
     q = select(Match).where(Match.competition == league.competition,
                             Match.season == league.season,
                             Match.jornada_num == jornada)
     if league.grupo:
         q = q.where(Match.grupo == league.grupo)
-    for m in session.exec(q).all():
+    partidos = list(session.exec(q).all())
+    rng.shuffle(partidos)
+    faltan_w = dict(CUPOS_GANADOR)
+    for m in partidos:
         if not (m.home_team_id and m.away_team_id):
             continue
-        p_local = _prob_local(session, league, m, jornada)
-        if not (0.25 <= p_local <= 0.75):
-            continue
-        local = session.get(Team, m.home_team_id)
-        visit = session.get(Team, m.away_team_id)
-        gana_local = rng.random() < 0.5     # unas veces se ofrece el local y otras el visitante
-        prob = p_local if gana_local else 1 - p_local
-        equipo = local if gana_local else visit
-        rival = visit if gana_local else local
-        opciones.append(FantasyBetOption(
-            league_id=league.id, jornada=jornada, kind="winner",
-            team_id=equipo.id if equipo else None, match_id=m.id,
-            prob=round(prob, 4), odds=_cuota(prob),
-            label=f"Gana {_corto(equipo.name if equipo else '?')} "
-                  f"a {_corto(rival.name if rival else '?')}"))
+        if not any(v > 0 for v in faltan_w.values()):
+            break
+        p_local = _prob_local(forma, m)
+        local, visit = session.get(Team, m.home_team_id), session.get(Team, m.away_team_id)
+        for casa in (True, False):
+            prob = p_local if casa else 1 - p_local
+            banda = next((b for b, (lo, hi) in BANDAS.items()
+                          if lo <= prob <= hi and faltan_w.get(b, 0) > 0), None)
+            if not banda:
+                continue
+            equipo, rival = (local, visit) if casa else (visit, local)
+            opciones.append(FantasyBetOption(
+                league_id=league.id, jornada=jornada, kind="winner",
+                team_id=equipo.id if equipo else None, match_id=m.id, band=banda,
+                prob=round(prob, 4), odds=_cuota(prob),
+                label=f"Gana {_corto(equipo.name if equipo else '?')} "
+                      f"a {_corto(rival.name if rival else '?')}",
+                detail=json.dumps({
+                    "equipo": _corto(equipo.name) if equipo else "?",
+                    "logo": equipo.logo if equipo else None,
+                    "rival": _corto(rival.name) if rival else "?",
+                    "rival_logo": rival.logo if rival else None,
+                    "casa": casa,
+                    "balance": _balance(forma, equipo.id if equipo else None),
+                    "rival_balance": _balance(forma, rival.id if rival else None),
+                }, ensure_ascii=False)))
+            faltan_w[banda] -= 1
+            break
 
     for o in opciones:
         session.add(o)
@@ -172,26 +321,27 @@ def _corto(nombre: str) -> str:
     return " ".join(partes[:2]) if len(partes) > 2 else " ".join(partes)
 
 
-def _prob_local(session: Session, league: FantasyLeague, m: Match, jornada: int) -> float:
-    """Probabilidad de que gane el local, por diferencia de puntos media y factor cancha."""
-    def margen(team_id: int) -> float:
-        q = select(Match).where(Match.competition == league.competition,
-                                Match.season == league.season,
-                                Match.jornada_num < jornada,
-                                Match.home_score != None)        # noqa: E711
-        difs = []
-        for x in session.exec(q).all():
-            if x.home_team_id == team_id:
-                difs.append((x.home_score or 0) - (x.away_score or 0))
-            elif x.away_team_id == team_id:
-                difs.append((x.away_score or 0) - (x.home_score or 0))
-        return sum(difs) / len(difs) if difs else 0.0
+def _nombre_largo(nombre: str) -> str:
+    from .fantasy import _nice
+    return _nice(nombre)
 
-    esperado = (margen(m.home_team_id) - margen(m.away_team_id)) / 2 + 2.5   # cancha
+
+def _prob_local(forma: dict[int, list], m: Match) -> float:
+    """Probabilidad de que gane el local, por diferencia media de puntos y factor cancha."""
+    esperado = (_margen(forma, m.home_team_id) - _margen(forma, m.away_team_id)) / 2 + 2.5
     return _normal_cdf(esperado / 11.0)      # 11 puntos de desviación típica
 
 
 # ============================ apostar ============================
+def _opcion_out(o: FantasyBetOption) -> dict:
+    """Una apuesta tal y como la pinta la app: con foto, escudo y los números detrás."""
+    d = json.loads(o.detail) if o.detail else {}
+    return {"id": o.id, "kind": o.kind, "label": o.label, "odds": o.odds,
+            "prob": o.prob, "player_id": o.player_id, "team_id": o.team_id,
+            "stat": o.stat, "line": o.line, "band": o.band or "normal",
+            "photo": d.get("code"), "logo": d.get("logo"), "detail": d}
+
+
 def resumen(session: Session, league: FantasyLeague, member: Optional[FantasyMember],
             jornada: int) -> dict:
     """El menú de la jornada y lo que lleva jugado el mánager."""
@@ -218,8 +368,7 @@ def resumen(session: Session, league: FantasyLeague, member: Optional[FantasyMem
                 ganancia += b.potential
     return {
         "jornada": jornada,
-        "options": [{"id": o.id, "kind": o.kind, "label": o.label, "odds": o.odds,
-                     "prob": o.prob, "player_id": o.player_id} for o in opciones],
+        "options": [_opcion_out(o) for o in opciones],
         "my_bets": mias,
         "stake_used": round(jugado, 1), "stake_max": STAKE_MAX,
         "win_used": round(ganancia, 1), "win_max": WIN_MAX,

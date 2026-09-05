@@ -1171,16 +1171,27 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 }
 .betopt.is-on { border-color: var(--accent); background: var(--accent-soft); }
 .betopt:disabled { opacity: 0.5; }
-.betopt__mark {
-  display: grid; place-items: center; width: 21px; height: 21px; flex-shrink: 0;
-  border-radius: 6px; border: 1.5px solid var(--border-2); color: var(--accent-ink);
-}
-.betopt__mark.is-on { background: var(--accent); border-color: var(--accent); }
 .betopt__txt { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 700; }
 .betopt__txt small { display: block; font-size: var(--fs-xs); color: var(--text-3); font-weight: 600; }
+.betopt__end { flex-shrink: 0; text-align: right; }
 .betopt__odds {
+  display: block;
   font-family: var(--display); font-size: var(--fs-lg); font-weight: 800; color: var(--accent);
 }
+.betopt__on {
+  display: inline-flex; align-items: center; gap: 3px; margin-top: 2px;
+  font-size: var(--fs-2xs); font-weight: 800; color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+/* el escudo del equipo, del tamaño de una foto de jugador para que las filas cuadren */
+.crest {
+  display: grid; place-items: center; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 9px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-3);
+  overflow: hidden;
+}
+.crest img { width: 100%; height: 100%; object-fit: contain; padding: 3px; }
+.crest--lg { width: 52px; height: 52px; border-radius: 13px; }
 .betslip {
   position: sticky; bottom: 8px; z-index: 5;
   padding: 13px; margin: 12px 0; border-radius: var(--r-lg);

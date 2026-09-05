@@ -286,6 +286,9 @@ class FantasyBetOption(SQLModel, table=True):
     stat: Optional[str] = None                   # pts | treb | ast | t3m
     line: Optional[float] = None                 # "más de X"
 
+    band: str = Field(default="normal")          # segura | normal | loca
+    detail: Optional[str] = None                 # JSON: medias, racha, rival, foto...
+
     prob: float = 0.0                            # la que calculamos
     odds: float = 1.0                            # ya con el margen de la casa
     created_at: datetime = Field(default_factory=datetime.utcnow)
