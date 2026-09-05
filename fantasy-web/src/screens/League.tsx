@@ -166,7 +166,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           <div className="appbar__nav">
             <button className="linkbtn" onClick={onBack}><IconArrowLeft size={18} />Mis ligas</button>
             <span style={{ flex: 1 }} />
-            <NotificationBell feed={data.feed} />
+            <NotificationBell feed={data.feed} leagueId={id} />
             {admin && (
               <button className="btn btn--sm btn--ghost" disabled={busy || done}
                 onClick={() => act(async () => {

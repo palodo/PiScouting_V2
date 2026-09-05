@@ -5,9 +5,12 @@ los boxscores de la FEB. Dos reglas fijan el equilibrio de la economía:
 
   · MARGEN: la cuota lleva un 8% para la casa, así que de media apostar PIERDE dinero.
     Sin eso, apostar saldría neutro y la liga se llenaría de millones de la nada.
-  · DOS TOPES: como mucho 5 M€ jugados y 1 M€ de ganancia por jornada. Topar solo la
-    ganancia no vale: bastaría con apostar 40 M€ a cuota 1,03 para llevarse el millón
-    casi sin riesgo.
+  · DOS TOPES, y son el MISMO número: como mucho 2 M€ jugados y 2 M€ de ganancia por
+    jornada. Topar solo la ganancia no vale (bastaría con apostar 40 M€ a cuota 1,03
+    para llevarse el tope casi sin riesgo), y dejar el tope de lo jugado por encima
+    del de lo ganado tampoco: se podría arriesgar más de lo que se puede ganar, que es
+    una apuesta perdida de antemano. Igualándolos, lo peor que puede pasar en una
+    jornada es exactamente lo mejor, cambiado de signo.
 
 Las probabilidades de "más de X" salen de una Poisson con la media del jugador, que es
 la distribución que siguen los recuentos de un partido (puntos, rebotes, asistencias,
@@ -25,8 +28,8 @@ from .models import (FantasyBet, FantasyBetLeg, FantasyBetOption, FantasyLeague,
                      FantasyMember, Match, Player, PlayerMatchStat, Team)
 
 MARGEN = 0.08          # se queda la casa; es lo que evita que la liga se infle
-STAKE_MAX = 5.0        # M€ jugados por jornada y mánager
-WIN_MAX = 1.0          # M€ de ganancia por jornada y mánager
+STAKE_MAX = 2.0        # M€ jugados por jornada y mánager
+WIN_MAX = 2.0          # M€ de ganancia por jornada y mánager (el mismo: ver cabecera)
 BETS_MAX = 3           # apuestas por jornada: es un extra, no el juego
 CUOTA_MIN, CUOTA_MAX = 1.25, 6.0
 STATS = {"pts": "puntos", "treb": "rebotes", "ast": "asistencias", "t3m": "triples"}

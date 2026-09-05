@@ -76,8 +76,11 @@ export const api = {
   advance: (id: number) => post(`/fantasy/leagues/${id}/advance`),
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),
 
-  notifications: () => get<{ items: any[]; unread: number }>("/fantasy/notifications"),
-  readNotifications: () => post("/fantasy/notifications/read"),
+  // sin liga, los avisos de todas; con liga, solo los de esa
+  notifications: (leagueId?: number) => get<{ items: any[]; unread: number }>(
+    "/fantasy/notifications" + (leagueId ? `?league_id=${leagueId}` : "")),
+  readNotifications: (leagueId?: number) =>
+    post("/fantasy/notifications/read" + (leagueId ? `?league_id=${leagueId}` : "")),
   matches: (id: number, jornada?: number) =>
     get(`/fantasy/leagues/${id}/matches` + (jornada != null ? `?jornada=${jornada}` : "")),
   clauses: (id: number) => get(`/fantasy/leagues/${id}/clauses`),

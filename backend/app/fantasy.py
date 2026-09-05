@@ -1903,14 +1903,22 @@ def feed(session: Session, league_id: int, limit: int = 40) -> list[dict]:
 
 
 
-def notifications(session: Session, user_id: int, limit: int = 40) -> dict:
-    """Los últimos avisos del usuario en todas sus ligas, y cuántos lleva sin leer."""
-    rows = session.exec(select(FantasyNotification)
-                        .where(FantasyNotification.user_id == user_id)
+def notifications(session: Session, user_id: int, limit: int = 40,
+                  league_id: Optional[int] = None) -> dict:
+    """Los últimos avisos del usuario y cuántos lleva sin leer.
+
+    Con `league_id`, solo los de esa liga: quien juega en dos no quiere ver dentro de
+    una lo que le ha pasado en la otra (ni que el contador se lo cuente).
+    """
+    def suyos():
+        q = select(FantasyNotification).where(FantasyNotification.user_id == user_id)
+        return q if league_id is None else q.where(
+            FantasyNotification.league_id == league_id)
+
+    rows = session.exec(suyos()
                         .order_by(FantasyNotification.id.desc()).limit(limit)).all()
-    unread = len(session.exec(select(FantasyNotification).where(
-        FantasyNotification.user_id == user_id,
-        FantasyNotification.read == False)).all())  # noqa: E712
+    unread = len(session.exec(
+        suyos().where(FantasyNotification.read == False)).all())  # noqa: E712
     names: dict[int, str] = {}
     items = []
     for n in rows:
@@ -1923,10 +1931,16 @@ def notifications(session: Session, user_id: int, limit: int = 40) -> dict:
     return {"items": items, "unread": unread}
 
 
-def mark_notifications_read(session: Session, user_id: int) -> dict:
-    rows = session.exec(select(FantasyNotification).where(
+def mark_notifications_read(session: Session, user_id: int,
+                            league_id: Optional[int] = None) -> dict:
+    """Marca leídos. Con `league_id`, solo los de esa liga: si abres la campana dentro
+    de una, los avisos de las otras te siguen esperando allí."""
+    q = select(FantasyNotification).where(
         FantasyNotification.user_id == user_id,
-        FantasyNotification.read == False)).all()  # noqa: E712
+        FantasyNotification.read == False)  # noqa: E712
+    if league_id is not None:
+        q = q.where(FantasyNotification.league_id == league_id)
+    rows = session.exec(q).all()
     for n in rows:
         n.read = True
         session.add(n)

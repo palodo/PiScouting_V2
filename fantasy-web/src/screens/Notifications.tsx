@@ -25,18 +25,20 @@ const ICON: Record<string, (p: IconProps) => ReactNode> = {
   info: IconInfo,
 };
 
-export default function NotificationBell({ label, feed }: {
+export default function NotificationBell({ label, feed, leagueId }: {
   label?: string;
   /** Actividad de la liga. Solo llega desde dentro de una liga; en "mis ligas" no hay. */
   feed?: any[];
+  /** Dentro de una liga, los avisos se acotan a ella (hay quien juega en varias). */
+  leagueId?: number;
 }) {
   const [data, setData] = useState<{ items: any[]; unread: number } | null>(null);
   const [open, setOpen] = useState(false);
   const [vista, setVista] = useState<"tuyo" | "liga">("tuyo");
 
   const refresh = useCallback(() => {
-    api.notifications().then(setData).catch(() => {});
-  }, []);
+    api.notifications(leagueId).then(setData).catch(() => {});
+  }, [leagueId]);
 
   useEffect(() => {
     refresh();
@@ -50,7 +52,7 @@ export default function NotificationBell({ label, feed }: {
   function openSheet() {
     setOpen(true);
     if (data?.unread) {
-      api.readNotifications()
+      api.readNotifications(leagueId)
         .then(() => setData((d) => (d ? { ...d, unread: 0 } : d)))
         .catch(() => {});
     }
@@ -109,7 +111,9 @@ export default function NotificationBell({ label, feed }: {
                   <div className="notif__body">
                     <div className="notif__title">{n.title}</div>
                     {n.body && <div className="notif__text">{n.body}</div>}
-                    <div className="notif__at">{n.league} · {relTime(n.at)}</div>
+                    <div className="notif__at">
+                      {leagueId ? relTime(n.at) : `${n.league} · ${relTime(n.at)}`}
+                    </div>
                   </div>
                 </div>
               );

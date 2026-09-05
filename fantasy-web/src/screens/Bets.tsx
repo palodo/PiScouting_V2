@@ -24,10 +24,11 @@ export default function BetsTab({ data, busy, onBet }: {
 
   if (!data) return <SkeletonList n={6} />;
 
-  const libre = r1((data.stake_max ?? 5) - (data.stake_used ?? 0));
+  // nunca negativo: si alguien jugó de más con los topes viejos, se queda en cero
+  const libre = Math.max(0, r1((data.stake_max ?? 2) - (data.stake_used ?? 0)));
   const bruto = r1(stake * cuota - stake);
-  const topado = bruto > (data.win_max ?? 1);
-  const ganancia = Math.min(bruto, data.win_max ?? 1);
+  const topado = bruto > (data.win_max ?? 2);
+  const ganancia = Math.min(bruto, data.win_max ?? 2);
   const puedeApostar = data.open && sel.length > 0 && stake > 0 && stake <= libre
     && (data.bets_used ?? 0) < (data.bets_max ?? 3);
 
