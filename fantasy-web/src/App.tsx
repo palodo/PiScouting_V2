@@ -3,6 +3,8 @@ import { api, getToken, setToken } from "./api";
 import { Loading, applyTheme, readTheme } from "./ui";
 import Login from "./screens/Login";
 import { Reset } from "./screens/Password";
+import Onboarding, { marcarVisto, yaVisto } from "./screens/Onboarding";
+import { registrarSW } from "./push";
 import Home from "./screens/Home";
 import League from "./screens/League";
 
@@ -18,6 +20,12 @@ export default function App() {
   // el enlace del correo llega como /?reset=TOKEN
   const [resetToken, setResetToken] = useState(
     () => new URLSearchParams(window.location.search).get("reset"));
+  const [bienvenida, setBienvenida] = useState(false);
+
+  // el service worker se registra siempre: sin él no hay avisos, y no estorba
+  useEffect(() => { registrarSW(); }, []);
+  // la bienvenida, solo la primera vez que se entra con sesión
+  useEffect(() => { if (me && !yaVisto()) setBienvenida(true); }, [me]);
 
   useEffect(() => {
     if (!getToken()) { setBooted(true); return; }
@@ -36,6 +44,12 @@ export default function App() {
     return <Reset token={resetToken} onDone={(m) => { setResetToken(null); setMe(m); }} />;
   }
   if (!me) return <Login onAuth={setMe} />;
-  if (leagueId) return <League id={leagueId} me={me} onBack={() => setLeagueId(null)} />;
-  return <Home me={me} onOpen={setLeagueId} onLogout={logout} />;
+
+  const bienve = bienvenida
+    ? <Onboarding onClose={() => { marcarVisto(); setBienvenida(false); }} />
+    : null;
+  if (leagueId) {
+    return <>{bienve}<League id={leagueId} me={me} onBack={() => setLeagueId(null)} /></>;
+  }
+  return <>{bienve}<Home me={me} onOpen={setLeagueId} onLogout={logout} /></>;
 }

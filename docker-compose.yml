@@ -20,6 +20,11 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM=${SMTP_FROM}
       - APP_URL=${APP_URL}
+      # Notificaciones push. Se generan UNA vez en el servidor (ver DEPLOY_AZURE.md);
+      # sin ellas la app funciona igual, solo que sin avisos en el móvil.
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
+      - VAPID_SUBJECT=${VAPID_SUBJECT}
     volumes:
       - piscouting_data:/data
     ports:

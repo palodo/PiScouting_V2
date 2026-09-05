@@ -5,6 +5,8 @@ import { IconAlert, IconArrowLeft, IconLogout, IconTrophy } from "../icons";
 import { phaseInfo } from "../parts";
 import { Brand, Empty, Segmented, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
 import NotificationBell from "./Notifications";
+import { activarPush, desactivarPush, estadoPush, type PushState } from "../push";
+import { IconBell } from "../icons";
 
 const DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
@@ -89,6 +91,8 @@ export default function Home({ me, onOpen, onLogout }: {
                 Sesión iniciada como <b>{me.email}</b>{me.is_admin ? " · administrador" : ""}.
               </p>
             </div>
+
+            <Avisos />
 
             {me.is_admin && <>
               <Section>Administración</Section>
@@ -390,5 +394,47 @@ function ResetLinkTool() {
         </div>
       )}
     </form>
+  );
+}
+
+
+/* ------------------------------------------------- avisos en el movil */
+function Avisos() {
+  const [estado, setEstado] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { estadoPush().then(setEstado); }, []);
+
+  async function alternar() {
+    setBusy(true);
+    try {
+      if (estado === "activado") { await desactivarPush(); setEstado("desactivado"); }
+      else setEstado(await activarPush());
+    } finally { setBusy(false); }
+  }
+
+  if (!estado || estado === "no-soportado") return null;
+  const texto: Record<string, string> = {
+    activado: "Recibirás un aviso cuando te clausulen a alguien, pierdas una puja o se puntúe la jornada.",
+    desactivado: "Actívalos y te avisamos aunque tengas la app cerrada.",
+    instalar: "Para recibir avisos en el iPhone, añade la app a la pantalla de inicio (Compartir → Añadir a pantalla de inicio) y ábrela desde su icono.",
+    bloqueado: "Los tienes bloqueados en el navegador. Se cambia en los ajustes del teléfono, en las notificaciones de PiFantasy.",
+  };
+
+  return (
+    <div className="card card--pad" style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ color: estado === "activado" ? "var(--pos)" : "var(--text-3)" }}>
+          <IconBell size={19} />
+        </span>
+        <span className="field__label" style={{ flex: 1, margin: 0 }}>Avisos en el móvil</span>
+        {(estado === "activado" || estado === "desactivado") && (
+          <button className={"btn btn--sm " + (estado === "activado" ? "btn--quiet" : "")}
+            disabled={busy} onClick={alternar}>
+            {busy ? <span className="spinner" /> : estado === "activado" ? "Desactivar" : "Activar"}
+          </button>
+        )}
+      </div>
+      <p className="hint" style={{ margin: "8px 0 0" }}>{texto[estado]}</p>
+    </div>
   );
 }

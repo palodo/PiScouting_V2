@@ -261,6 +261,24 @@ class FantasyJornadaScore(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PushSubscription(SQLModel, table=True):
+    """Un dispositivo al que avisar. Cada navegador de cada usuario es una fila.
+
+    `endpoint` es la URL que da el navegador (Apple, Google...) y hace de identificador:
+    si el mismo móvil vuelve a suscribirse, se actualiza en vez de duplicarse.
+    """
+    __tablename__ = "push_subscriptions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    endpoint: str = Field(index=True, unique=True)
+    p256dh: str          # clave pública del navegador, para cifrar el mensaje
+    auth: str            # secreto compartido del cifrado
+    user_agent: Optional[str] = None
+    failures: int = Field(default=0)   # se borra sola tras varios rechazos
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class PasswordReset(SQLModel, table=True):
     """Petición de cambio de contraseña.
 
@@ -291,6 +309,8 @@ class FantasyNotification(SQLModel, table=True):
     title: str = ""
     body: str = ""
     read: bool = Field(default=False, index=True)
+    # ya empujado al móvil: lo marca el hilo de envío, no la petición que lo creó
+    pushed: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 

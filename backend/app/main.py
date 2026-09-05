@@ -14,8 +14,9 @@ from sqlmodel import Session, select, func
 
 from .db import engine, init_db, get_session
 from .config import DEFAULT_SEASON
-from .models import Team, Player, Match, PlayerMatchStat, User, FantasyLeague, PasswordReset
-from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod, mailer
+from .models import (Team, Player, Match, PlayerMatchStat, User, FantasyLeague,
+                     PasswordReset, PushSubscription)
+from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod, mailer, push as push_mod
 from .ingest.crawl import ingest_team
 
 app = FastAPI(title="PiScouting API", version="0.1.0")
@@ -55,6 +56,8 @@ def _startup() -> None:
     init_db()
     import threading
     threading.Thread(target=_warm_cache, daemon=True).start()
+    # empuja al móvil los avisos que se van creando (incluidos los del cron horario)
+    push_mod.start_worker(engine)
 
 
 @app.get("/api/health")
@@ -395,6 +398,64 @@ def admin_reset_link(body: ForgotBody, user: User = Depends(auth.get_current_use
         raise HTTPException(404, "No hay ninguna cuenta con ese email")
     return {"ok": True, "email": target.email, "link": _make_reset(session, target),
             "minutes": auth.RESET_TTL_MIN}
+
+
+class PushSubBody(BaseModel):
+    endpoint: str
+    p256dh: str
+    auth: str
+    user_agent: Optional[str] = None
+
+
+class PushOffBody(BaseModel):
+    endpoint: str
+
+
+@app.get("/api/push/key")
+def push_key():
+    """Clave pública VAPID: el navegador la necesita para suscribirse."""
+    return {"enabled": push_mod.enabled(), "key": push_mod.VAPID_PUBLIC_KEY or None}
+
+
+@app.post("/api/push/subscribe")
+def push_subscribe(body: PushSubBody, user: User = Depends(auth.get_current_user),
+                   session: Session = Depends(get_session)):
+    if not push_mod.enabled():
+        raise HTTPException(503, "Las notificaciones no están configuradas")
+    sub = session.exec(select(PushSubscription).where(
+        PushSubscription.endpoint == body.endpoint)).first()
+    if sub:
+        # el mismo dispositivo puede cambiar de dueño (móvil compartido, cierre de sesión)
+        sub.user_id, sub.p256dh, sub.auth = user.id, body.p256dh, body.auth
+        sub.failures = 0
+    else:
+        sub = PushSubscription(user_id=user.id, endpoint=body.endpoint, p256dh=body.p256dh,
+                               auth=body.auth, user_agent=(body.user_agent or "")[:200])
+    session.add(sub)
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(body: PushOffBody, user: User = Depends(auth.get_current_user),
+                     session: Session = Depends(get_session)):
+    sub = session.exec(select(PushSubscription).where(
+        PushSubscription.endpoint == body.endpoint,
+        PushSubscription.user_id == user.id)).first()
+    if sub:
+        session.delete(sub)
+        session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/push/test")
+def push_test(user: User = Depends(auth.get_current_user),
+              session: Session = Depends(get_session)):
+    """Se manda un aviso a uno mismo, para comprobar que el móvil lo recibe."""
+    n = push_mod.send_to_user(session, user.id, "PiFantasy",
+                              "Las notificaciones funcionan. Aquí te avisaremos de los "
+                              "clausulazos y de tu jornada.")
+    return {"ok": True, "sent": n}
 
 
 @app.get("/api/auth/config")

@@ -1084,3 +1084,25 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* ------------------------------------------------ bienvenida (instalar + avisos) */
+.step2 {
+  display: flex; gap: 12px; padding: 14px; margin-bottom: 10px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.step2__n {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  flex-shrink: 0; background: var(--accent); color: var(--accent-ink);
+  font-family: var(--display); font-weight: 800; font-size: var(--fs-md);
+}
+.step2 b { display: block; font-size: var(--fs-base); margin-bottom: 3px; }
+.step2 p { font-size: var(--fs-md); color: var(--text-2); line-height: 1.55; margin: 0 0 8px; }
+.step2 p:last-child { margin-bottom: 0; }
+.step2__ojo {
+  color: var(--text-3) !important; font-size: var(--fs-sm) !important;
+  border-left: 2px solid var(--border-2); padding-left: 10px;
+}
+.step2__ok {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--pos) !important; font-weight: 700; font-size: var(--fs-md) !important;
+}

@@ -42,6 +42,12 @@ export const api = {
   resetPassword: (token: string, password: string) => post("/auth/reset", { token, password }),
   adminResetLink: (email: string) => post<{ link: string; minutes: number }>("/admin/reset-link", { email }),
 
+  pushKey: () => get<{ enabled: boolean; key: string | null }>("/push/key"),
+  pushSubscribe: (b: { endpoint: string; p256dh: string; auth: string; user_agent?: string }) =>
+    post("/push/subscribe", b),
+  pushUnsubscribe: (endpoint: string) => post("/push/unsubscribe", { endpoint }),
+  pushTest: () => post<{ sent: number }>("/push/test"),
+
   competitions: () => get<{ competitions: { competition: string; grupos: string[] }[] }>("/fantasy/competitions"),
   leagues: () => get<any[]>("/fantasy/leagues"),
   create: (b: any) => post("/fantasy/leagues", b),
