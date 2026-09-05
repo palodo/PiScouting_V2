@@ -270,7 +270,10 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .tabbar {
   /* último hijo del shell: ya está abajo del todo por el flujo, sin fixed ni sticky */
   flex: 0 0 auto; z-index: 30;
-  display: flex; padding-bottom: var(--safe-b);
+  /* Del hueco del indicador de inicio se reserva algo más de la mitad, no entero: los
+     34 px de Apple dejaban un dedo de aire muerto bajo las etiquetas. Con ~19 px la
+     rayita del indicador (que vive en los 21 px de abajo) sigue sin cruzarlas. */
+  display: flex; padding-bottom: calc(var(--safe-b) * 0.55);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: saturate(1.4) blur(16px);
   -webkit-backdrop-filter: saturate(1.4) blur(16px);
