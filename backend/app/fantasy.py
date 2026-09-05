@@ -77,13 +77,18 @@ def _pct(m, a):
 
 # ============================ datos de la conferencia ============================
 def conference_games(session: Session, comp: str, grupo: Optional[str], season: str) -> dict:
-    """player_id -> {name, feb_code, team_id, team, games:[{j,val,pm,won}]} ordenado por jornada."""
+    """player_id -> {name, feb_code, team_id, team, games:[...]} ordenado por jornada.
+
+    Cada partido lleva val, +/-, minutos y el margen final del equipo: los minutos y el
+    margen son los que permiten valorar el +/- en su contexto (ver `_pm_bonus`).
+    """
     # Se piden columnas sueltas y no entidades: con objetos del ORM, 3ª FEB (unas 40.000
     # líneas de boxscore) llegaba a 247 MB de pico, y el plan gratuito de Render tiene 512.
     q = (
         select(Player.id, Player.name, Player.feb_code, Team.id, Team.name,
                Match.jornada_num, Match.home_score, Match.away_score,
-               PlayerMatchStat.is_home, PlayerMatchStat.val, PlayerMatchStat.plus_minus)
+               PlayerMatchStat.is_home, PlayerMatchStat.val, PlayerMatchStat.plus_minus,
+               PlayerMatchStat.seconds)
         .join(Match, Match.id == PlayerMatchStat.match_id)
         .join(Player, Player.id == PlayerMatchStat.player_id)
         .join(Team, Team.id == PlayerMatchStat.team_id)
@@ -93,12 +98,13 @@ def conference_games(session: Session, comp: str, grupo: Optional[str], season: 
         q = q.where(Team.grupo == grupo)
     out: dict[int, dict] = {}
     for (pid, pname, feb_code, tid, tname, jornada_num,
-         home_score, away_score, is_home, val, pm) in session.exec(q):
+         home_score, away_score, is_home, val, pm, seconds) in session.exec(q):
         if jornada_num is None:
             continue
         my = home_score if is_home else away_score
         opp = away_score if is_home else home_score
         won = my is not None and opp is not None and my > opp
+        margin = (my - opp) if (my is not None and opp is not None) else 0
         d = out.setdefault(pid, {
             "player_id": pid, "name": pname, "feb_code": feb_code,
             "team_id": tid, "team": tname, "last_j": jornada_num, "games": [],
@@ -109,7 +115,8 @@ def conference_games(session: Session, comp: str, grupo: Optional[str], season: 
             d["last_j"] = jornada_num
             d["team_id"] = tid
             d["team"] = tname
-        d["games"].append({"j": jornada_num, "val": val, "pm": pm, "won": won})
+        d["games"].append({"j": jornada_num, "val": val, "pm": pm, "won": won,
+                           "min": round((seconds or 0) / 60.0, 1), "margin": margin})
     for d in out.values():
         d["games"].sort(key=lambda g: g["j"])
     return out
@@ -272,9 +279,34 @@ _PRICED_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
 PRICED_TTL = 300.0  # segundos
 
 
+# Cuánto pesa el +/- EN SU CONTEXTO. Un +/- suelto engaña: en un equipo que gana de 30
+# todos acaban en positivo, y en uno que pierde de 20 todos en negativo. Lo que dice algo
+# es la diferencia con lo que "tocaba" según el marcador y los minutos jugados.
+PM_WEIGHT = 0.30      # puntos por cada unidad de impacto
+PM_CAP = 15.0         # tope del impacto por partido (±4.5 puntos)
+PM_MIN_FULL = 12.0    # minutos a partir de los cuales el impacto cuenta entero
+
+
+def _pm_bonus(game: dict) -> float:
+    """Ajuste por el +/- relativo al marcador y prorrateado por minutos.
+
+    Si su equipo gana de 30 y él juega media hora, lo normal es acabar cerca de +22:
+    quedarse en +1 es malo aunque el equipo arrase. Y al revés, aguantar en +13 mientras
+    el equipo pierde es una actuación enorme que el marcador tapa.
+
+    A quien juega poco se le pesa menos: dos minutos de basura no dicen nada.
+    """
+    mins = float(game.get("min") or 0.0)
+    if mins <= 0:
+        return 0.0
+    esperado = float(game.get("margin") or 0) * (mins / 40.0)
+    impacto = _clamp(float(game["pm"]) - esperado, -PM_CAP, PM_CAP)
+    return round(PM_WEIGHT * impacto * min(1.0, mins / PM_MIN_FULL), 2)
+
+
 def _fp(game: dict, win_bonus: float) -> float:
-    """Puntos fantasy de UN partido: valoración + bonus si su equipo ganó."""
-    return game["val"] + (win_bonus if game["won"] else 0.0)
+    """Puntos fantasy de UN partido: valoración + bonus por victoria + su +/- en pista."""
+    return game["val"] + (win_bonus if game["won"] else 0.0) + _pm_bonus(game)
 
 
 def all_priced(session: Session, league: FantasyLeague) -> list[dict]:
@@ -1052,6 +1084,10 @@ def player_jornada_line(session: Session, league: FantasyLeague, player_id: int,
     mine = m.home_score if st.is_home else m.away_score
     opp = m.away_score if st.is_home else m.home_score
     won = mine is not None and opp is not None and mine > opp
+    g = {"val": st.val, "pm": st.plus_minus, "won": won,
+         "min": round(st.seconds / 60.0, 1),
+         "margin": (mine - opp) if (mine is not None and opp is not None) else 0}
+    pm_bonus = _pm_bonus(g)
     return {
         "jornada": jornada, "team": team.name, "rival": rival.name if rival else None,
         "home": st.is_home, "score": f"{mine}-{opp}" if mine is not None else None,
@@ -1062,7 +1098,8 @@ def player_jornada_line(session: Session, league: FantasyLeague, player_id: int,
         "blk": st.blk_for, "tov": st.tov, "pf": st.pf_committed,
         # el desglose de los puntos fantasy de esa jornada
         "win_bonus": league.win_bonus if won else 0.0,
-        "points": round(st.val + (league.win_bonus if won else 0.0), 1),
+        "pm_bonus": pm_bonus,
+        "points": round(_fp(g, league.win_bonus), 1),
     }
 
 
@@ -1098,9 +1135,13 @@ def player_detail(session: Session, league: FantasyLeague, player_id: int,
         opp = m.away_score if st.is_home else m.home_score
         won = my is not None and opp is not None and my > opp
         wins += int(won)
-        games.append({"j": m.jornada_num, "val": st.val, "pts": st.pts, "reb": st.treb,
-                      "ast": st.ast, "pm": st.plus_minus, "min": round(st.seconds / 60, 1),
-                      "won": won})
+        g = {"j": m.jornada_num, "val": st.val, "pts": st.pts, "reb": st.treb,
+             "ast": st.ast, "pm": st.plus_minus, "min": round(st.seconds / 60, 1),
+             "won": won, "margin": (my - opp) if (my is not None and opp is not None) else 0}
+        # los puntos de ese partido ya calculados: la fórmula vive en un solo sitio
+        g["pm_bonus"] = _pm_bonus(g)
+        g["fp"] = round(_fp(g, league.win_bonus), 1)
+        games.append(g)
     n = len(rows) or 1
     fga, fgm = agg["t2a"] + agg["t3a"], agg["t2m"] + agg["t3m"]
     ts_den = 2 * (fga + 0.44 * agg["tla"])

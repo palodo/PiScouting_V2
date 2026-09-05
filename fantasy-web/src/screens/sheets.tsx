@@ -33,7 +33,9 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
 
   const wb = d.win_bonus ?? league?.win_bonus ?? 0;
   const games: any[] = d.last ?? [];
-  const gamePts = (g: any) => r1(g.val + (g.won ? wb : 0));
+  // los puntos de cada partido los manda el backend (val + bonus + su +/- en pista);
+  // el cálculo local es solo por si respondiera una versión antigua
+  const gamePts = (g: any) => g.fp ?? r1(g.val + (g.won ? wb : 0));
   // La media la manda el backend (misma ventana de jornadas que las listas); el total
   // sale de los datos de la ficha para que cuadre con los PJ y el V-D de arriba.
   const fpAvg = d.fp_avg ?? (d.games ? r1(d.avg.val + (wb * d.wins) / d.games) : 0);
@@ -75,7 +77,7 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
         <div>
           <span className="fp__k">Puntos fantasy · media</span>
           <span className="fp__v num">{fpAvg}</span>
-          <span className="fp__note">VAL {d.avg.val} + {wb} por victoria de su equipo</span>
+          <span className="fp__note">VAL {d.avg.val} + {wb} por victoria + su +/- en pista</span>
         </div>
         <div className="fp__side">
           <div><b className="num">{fpTotal}</b><span>temporada</span></div>
@@ -245,7 +247,8 @@ function GameLine({ g }: { g: any }) {
 
       <p className="game__note">
         {g.starter ? "Salió de titular. " : ""}
-        <b>{g.points} PF</b> = {g.val} de valoración{g.win_bonus ? ` + ${g.win_bonus} por ganar` : ""}.
+        <b>{g.points} PF</b> = {g.val} de valoración{g.win_bonus ? ` + ${g.win_bonus} por ganar` : ""}
+        {g.pm_bonus ? `${g.pm_bonus > 0 ? " + " : " − "}${Math.abs(g.pm_bonus)} por su +/- en pista` : ""}.
       </p>
     </div>
   );
@@ -416,7 +419,7 @@ export function ScoringSheet({ lg, onClose }: { lg: any; onClose: () => void }) 
 
       <div className="formula">
         <span className="formula__l">Puntos fantasy de un partido</span>
-        <span className="formula__v">VAL <em>+ {wb} si su equipo gana</em></span>
+        <span className="formula__v">VAL <em>+ {wb} si su equipo gana + su +/- en pista</em></span>
       </div>
 
       <p className="hint">
@@ -425,6 +428,13 @@ export function ScoringSheet({ lg, onClose }: { lg: any; onClose: () => void }) 
         (puntos + rebotes + asistencias + robos + tapones + faltas recibidas)
         <br />
         − (tiros fallados + pérdidas + tapones recibidos + faltas cometidas).
+      </p>
+      <p className="hint">
+        El <b>+/- en pista</b> no se mira a secas, sino comparado con el marcador: si su
+        equipo gana de 30 y él juega media hora, lo normal es acabar cerca de +22, así que
+        quedarse en +1 resta. Y aguantar en positivo mientras el equipo pierde suma, aunque
+        el resultado diga otra cosa. Mueve como mucho <b>±4,5 puntos</b> por partido, y a
+        quien juega poco le cuenta menos.
       </p>
       <p className="hint">
         Cada jornada suman <b>solo tus {lg.lineup_size} titulares</b>. El banquillo no puntúa,
