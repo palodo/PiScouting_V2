@@ -71,7 +71,10 @@
   --r-lg: 18px;
   --r-xl: 24px;
   --safe-t: env(safe-area-inset-top, 0px);
-  --safe-b: env(safe-area-inset-bottom, 0px);
+  /* El hueco de abajo (indicador de inicio del iPhone) SOLO hace falta con la app
+     instalada. En Safari, iOS sigue reportando esos ~34 px aunque su propia barra ya
+     ocupe ese sitio: dejarlos levantaba la barra de pestañas y tapaba contenido. */
+  --safe-b: 0px;
   --tabbar-h: 58px;
 }
 
@@ -146,6 +149,12 @@ html[data-theme="light"] {
   --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.07); --shadow-2: 0 18px 42px rgba(15, 23, 42, 0.16);
   --scrim: rgba(20, 28, 44, 0.42);
 }
+
+@media (display-mode: standalone) {
+  :root { --safe-b: env(safe-area-inset-bottom, 0px); }
+}
+/* iOS antiguo no entiende display-mode: la clase la pone la app al arrancar */
+html.is-standalone { --safe-b: env(safe-area-inset-bottom, 0px); }
 
 /* -------------------------------------------------------------------- base */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

@@ -4,12 +4,15 @@ import { Loading, applyTheme, readTheme } from "./ui";
 import Login from "./screens/Login";
 import { Reset } from "./screens/Password";
 import Onboarding, { marcarVisto, yaVisto } from "./screens/Onboarding";
-import { registrarSW } from "./push";
+import { esInstalada, registrarSW } from "./push";
 import Home from "./screens/Home";
 import League from "./screens/League";
 
 // El tema se aplica antes del primer render para que no haya destello blanco al abrir.
 applyTheme(readTheme());
+// Instalada en la pantalla de inicio: solo entonces hay que respetar el hueco del
+// indicador de inicio (ver --safe-b en index.css).
+document.documentElement.classList.toggle("is-standalone", esInstalada());
 
 export type Me = { id: number; email: string; name?: string | null; is_admin?: boolean };
 
