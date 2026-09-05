@@ -16,7 +16,7 @@ from .db import engine, init_db, get_session
 from .config import DEFAULT_SEASON
 from .models import (Team, Player, Match, PlayerMatchStat, User, FantasyLeague,
                      PasswordReset, PushSubscription)
-from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod, mailer, push as push_mod
+from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod, mailer, push as push_mod, bets as bets_mod
 from .ingest.crawl import ingest_team
 
 app = FastAPI(title="PiScouting API", version="0.1.0")
@@ -817,6 +817,38 @@ def fantasy_market_open(league_id: int, user: User = Depends(auth.get_current_us
 class OfferBody(BaseModel):
     player_id: int
     amount: float
+
+
+class BetBody(BaseModel):
+    option_ids: list[int]
+    stake: float
+
+
+@app.get("/api/fantasy/leagues/{league_id}/bets")
+def fantasy_bets(league_id: int, user: User = Depends(auth.get_current_user),
+                 session: Session = Depends(get_session)):
+    """Menú de apuestas de la jornada que viene y lo que llevas jugado."""
+    lg = _get_league(session, league_id)
+    member = fantasy_mod.member_of(session, league_id, user.id)
+    state = fantasy_mod.league_state(session, lg)
+    data = bets_mod.resumen(session, lg, member, state["jornada"])
+    data["open"] = state["phase"] in ("mercado", "alineacion")
+    data["phase"] = state["phase"]
+    data["budget"] = member.budget_remaining if member else 0
+    return data
+
+
+@app.post("/api/fantasy/leagues/{league_id}/bets")
+def fantasy_bet_place(league_id: int, body: BetBody,
+                      user: User = Depends(auth.get_current_user),
+                      session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    state = fantasy_mod.league_state(session, lg)
+    try:
+        return bets_mod.apostar(session, lg, m, state["jornada"], body.option_ids, body.stake)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/fantasy/leagues/{league_id}/players")

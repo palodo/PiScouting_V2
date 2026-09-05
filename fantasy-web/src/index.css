@@ -1156,3 +1156,60 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .prow__rank { color: var(--text-3); font-weight: 800; }
 .prow__free { color: var(--pos); font-weight: 700; }
 .prow__urge { color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ apuestas */
+.betbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; margin-bottom: 12px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.betbar > div { flex: 1; min-width: 0; }
+.betopt {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 11px 13px; margin-bottom: 8px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+}
+.betopt.is-on { border-color: var(--accent); background: var(--accent-soft); }
+.betopt:disabled { opacity: 0.5; }
+.betopt__mark {
+  display: grid; place-items: center; width: 21px; height: 21px; flex-shrink: 0;
+  border-radius: 6px; border: 1.5px solid var(--border-2); color: var(--accent-ink);
+}
+.betopt__mark.is-on { background: var(--accent); border-color: var(--accent); }
+.betopt__txt { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 700; }
+.betopt__txt small { display: block; font-size: var(--fs-xs); color: var(--text-3); font-weight: 600; }
+.betopt__odds {
+  font-family: var(--display); font-size: var(--fs-lg); font-weight: 800; color: var(--accent);
+}
+.betslip {
+  position: sticky; bottom: 8px; z-index: 5;
+  padding: 13px; margin: 12px 0; border-radius: var(--r-lg);
+  background: var(--surface-3); border: 1px solid var(--accent-line);
+  box-shadow: var(--shadow-2);
+}
+.betslip__top {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: var(--fs-md); font-weight: 700;
+}
+.betslip__top b { font-family: var(--display); font-size: var(--fs-lg); color: var(--accent); }
+.betmine {
+  padding: 11px 13px; margin-bottom: 8px; border-radius: var(--r-md);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.betmine--won { border-color: color-mix(in srgb, var(--pos) 45%, transparent); background: var(--pos-soft); }
+.betmine--lost { opacity: 0.65; }
+.betmine--void { border-style: dashed; }
+.betmine__top {
+  display: flex; align-items: center; gap: 9px; font-size: var(--fs-md); font-weight: 700;
+  margin-bottom: 5px;
+}
+.betmine__j {
+  padding: 2px 7px; border-radius: 999px; background: var(--surface-2);
+  font-size: var(--fs-2xs); font-weight: 800; color: var(--text-3);
+}
+.betmine__st { flex: 1; min-width: 0; }
+.betmine__odds { color: var(--text-3); font-weight: 800; }
+.betmine__leg { font-size: var(--fs-sm); color: var(--text-2); padding: 1px 0; }
+.leg--won { color: var(--pos); }
+.leg--lost { color: var(--neg); }
+.leg--void { color: var(--text-3); text-decoration: line-through; }

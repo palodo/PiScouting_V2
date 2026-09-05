@@ -14,6 +14,7 @@ import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
 import MarketTab from "./Market";
+import BetsTab from "./Bets";
 import OffersTab from "./Offers";
 import PlayersTab from "./Players";
 import NotificationBell from "./Notifications";
@@ -61,6 +62,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [offers, setOffers] = useState<any>(null);
   const [players, setPlayers] = useState<any>(null);
   const [offerFor, setOfferFor] = useState<any>(null);
+  const [bets, setBets] = useState<any>(null);
   const inited = useRef(false);
 
   async function load() { const d = await api.league(id); setData(d); return d; }
@@ -68,6 +70,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   async function loadClauses() { const c = await api.clauses(id); setClauses(c); return c; }
   async function loadOffers() { const o = await api.offers(id); setOffers(o); return o; }
   async function loadPlayers() { const p = await api.players(id); setPlayers(p); return p; }
+  async function loadBets() { const b = await api.bets(id); setBets(b); return b; }
   function openMatches(jornada?: number) {
     setMatchesFor({ loading: true });
     api.matches(id, jornada).then(setMatchesFor).catch(() => setMatchesFor(null));
@@ -86,6 +89,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
     loadOffers().catch(() => setOffers({ received: [], sent: [] }));
     if (tab === "mercado") { loadMarket(); loadClauses().catch(() => setClauses({ players: [] })); }
     if (tab === "jugadores" && !players) loadPlayers().catch(() => setPlayers({ players: [] }));
+    if (tab === "liga") loadBets().catch(() => setBets({ options: [], my_bets: [] }));
   }, [tab]);
   useEffect(() => {
     if (tab !== "mercado" || !data?.league?.market_open) return;
@@ -129,6 +133,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       if (clauses) await loadClauses();
       await loadOffers().catch(() => {});
       if (players) await loadPlayers().catch(() => {});
+      if (bets) await loadBets().catch(() => {});
       if (note) setMsg({ text: note });
     } catch (e: any) {
       setMsg({ text: e.message, bad: true });
@@ -230,7 +235,10 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         )}
 
         {tab === "liga" && (
-          <TableTab data={data} lg={lg} jr={jr}
+          <TableTab data={data} lg={lg} jr={jr} bets={bets}
+            betsUI={<BetsTab data={bets} busy={busy}
+              onBet={(ids: number[], stake: number) =>
+                act(() => api.placeBet(id, ids, stake), `Apuesta de ${stake} M\u20ac hecha`)} />}
             onJornada={(j: number) => api.jornada(id, j).then(setJr).catch(() => {})}
             onManager={openManager} onPlayer={openPlayer} />
         )}

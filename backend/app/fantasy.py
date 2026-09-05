@@ -1724,6 +1724,12 @@ def advance(session: Session, league: FantasyLeague) -> dict:
                                         points=gained, starters=json.dumps(starters)))
         breakdown.append({"member_id": m.id, "manager": m.manager_name, "gained": gained})
     league.current_jornada = nxt
+    # las apuestas se liquidan con los mismos resultados que acaban de puntuar
+    try:
+        from . import bets as bets_mod
+        bets_mod.resolver(session, league, nxt)
+    except Exception as e:  # noqa: BLE001 - una apuesta rota no puede bloquear la jornada
+        print(f"[apuestas] no se pudieron resolver las de la jornada {nxt}: {e}", flush=True)
     _after_jornada(session, league)
     session.add(league)
     best = max(breakdown, key=lambda b: b["gained"], default=None)

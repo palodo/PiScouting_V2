@@ -265,6 +265,63 @@ class FantasyJornadaScore(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class FantasyBetOption(SQLModel, table=True):
+    """Una apuesta del menú de la jornada.
+
+    Las prepara la liga, iguales para todos, y se guardan en vez de calcularse al vuelo:
+    la media de un jugador cambia en cuanto se ingesta un partido, y una cuota que se
+    mueve mientras la miras no es una cuota.
+    """
+    __tablename__ = "fantasy_bet_options"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    jornada: int = Field(index=True)
+    kind: str = Field(default="stat")            # stat | winner
+    label: str = ""                              # texto ya montado para la app
+
+    player_id: Optional[int] = Field(default=None, foreign_key="players.id")
+    team_id: Optional[int] = Field(default=None, foreign_key="teams.id")
+    match_id: Optional[int] = Field(default=None, foreign_key="matches.id")
+    stat: Optional[str] = None                   # pts | treb | ast | t3m
+    line: Optional[float] = None                 # "más de X"
+
+    prob: float = 0.0                            # la que calculamos
+    odds: float = 1.0                            # ya con el margen de la casa
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyBet(SQLModel, table=True):
+    """Lo que juega un mánager. Con varias patas es una combinada."""
+    __tablename__ = "fantasy_bets"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    member_id: int = Field(foreign_key="fantasy_members.id", index=True)
+    jornada: int = Field(index=True)
+    stake: float = 0.0
+    odds: float = 1.0                            # producto de las patas
+    potential: float = 0.0                       # ganancia posible, ya topada
+    status: str = Field(default="pending", index=True)   # pending|won|lost|void
+    payout: float = 0.0                          # lo que se devuelve al acertar
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    resolved_at: Optional[datetime] = None
+
+
+class FantasyBetLeg(SQLModel, table=True):
+    """Cada pata de una apuesta. Guarda la cuota del momento: lo que pase después con
+    la media del jugador no puede cambiar lo que ya se apostó."""
+    __tablename__ = "fantasy_bet_legs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    bet_id: int = Field(foreign_key="fantasy_bets.id", index=True)
+    option_id: Optional[int] = Field(default=None, foreign_key="fantasy_bet_options.id")
+    label: str = ""
+    odds: float = 1.0
+    status: str = Field(default="pending")       # pending|won|lost|void
+    result: Optional[float] = None               # lo que hizo de verdad
+
+
 class FantasyOffer(SQLModel, table=True):
     """Una oferta por un jugador con dueño.
 

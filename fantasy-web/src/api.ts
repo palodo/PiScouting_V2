@@ -64,6 +64,9 @@ export const api = {
   sell: (id: number, player_id: number) => post(`/fantasy/leagues/${id}/sell`, { player_id }),
   cancelSale: (id: number, player_id: number) => post(`/fantasy/leagues/${id}/sell/cancel`, { player_id }),
   players: (id: number) => get(`/fantasy/leagues/${id}/players`),
+  bets: (id: number) => get(`/fantasy/leagues/${id}/bets`),
+  placeBet: (id: number, option_ids: number[], stake: number) =>
+    post(`/fantasy/leagues/${id}/bets`, { option_ids, stake }),
   offers: (id: number) => get<{ received: any[]; sent: any[] }>(`/fantasy/leagues/${id}/offers`),
   makeOffer: (id: number, player_id: number, amount: number) =>
     post(`/fantasy/leagues/${id}/offers`, { player_id, amount }),
