@@ -10,6 +10,8 @@ services:
       - PISCOUTING_SECRET=${PISCOUTING_SECRET}
       - PISCOUTING_ADMIN_TOKEN=${PISCOUTING_ADMIN_TOKEN}
       - FRONTEND_ORIGIN=${FRONTEND_ORIGIN}
+      # ID de cliente de Google (público: viaja en el propio botón de la web)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
     volumes:
       - piscouting_data:/data
     ports:
