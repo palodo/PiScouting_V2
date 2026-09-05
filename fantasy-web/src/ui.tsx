@@ -3,6 +3,7 @@
    estados vacíos y utilidades de formato. Todo el color sale de index.css.
    ========================================================================== */
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { photo } from "./api";
 import { IconClose, IconTrendDown, IconTrendUp, IconFlat } from "./icons";
 
@@ -151,13 +152,17 @@ export function Sheet({ children, onClose, title }: {
       document.documentElement.classList.remove("sheet-open");
     };
   }, [onClose]);
-  return (
+  // Portal a <body> a propósito: la barra superior lleva backdrop-filter, y eso crea un
+  // bloque contenedor que atrapa a los hijos `position: fixed`. Sin esto, una hoja abierta
+  // desde la campana se dibujaba DENTRO de la cabecera (58 px de alto) y no se veía.
+  return createPortal(
     <div className="overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet__grab" />
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
