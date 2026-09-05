@@ -7,7 +7,9 @@
 	}
 	handle {
 		root * /srv
-		try_files {path} /index.html
+		# {path}.html permite servir /privacidad y /condiciones sin extensión;
+		# el resto cae en index.html, que es la app (una sola página).
+		try_files {path} {path}.html /index.html
 		file_server
 	}
 }
