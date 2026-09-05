@@ -368,6 +368,19 @@ def price_map(session: Session, league: FantasyLeague) -> dict[int, float]:
     return {r["player_id"]: r["price"] for r in all_priced(session, league)}
 
 
+def listed_player_ids(session: Session, league: FantasyLeague) -> set[int]:
+    """Jugadores que están AHORA MISMO en la subasta abierta.
+
+    No tienen dueño todavía, pero están comprometidos: repartirlos por otra vía deja al
+    mismo jugador en una plantilla y en el mercado a la vez.
+    """
+    rows = session.exec(select(FantasyListing).where(
+        FantasyListing.league_id == league.id,
+        FantasyListing.round_no == league.market_round,
+        FantasyListing.resolved == False)).all()  # noqa: E712
+    return {l.player_id for l in rows}
+
+
 def owned_player_ids(session: Session, league_id: int) -> set[int]:
     members = session.exec(select(FantasyMember).where(FantasyMember.league_id == league_id)).all()
     mids = [m.id for m in members]
@@ -628,6 +641,17 @@ def _resolve_round(session: Session, league: FantasyLeague) -> None:
                 session.add(b)
         pl_row = session.get(Player, lst.player_id)
         pl_name = _nice(pl_row.name if pl_row else None)
+        # Cinturón y tirantes: si a estas alturas el jugador ya tiene dueño (por la vía
+        # que sea), la subasta se anula entera. Nadie paga y nadie se lo lleva; sería
+        # mucho peor acabar con el mismo jugador en dos plantillas.
+        if lst.player_id in owned_player_ids(session, league.id):
+            for b in bids:
+                b.status = "lost"
+                session.add(b)
+            lst.resolved = True
+            session.add(lst)
+            print(f"[mercado] subasta anulada: {pl_name} ya tenía dueño", flush=True)
+            continue
         if winner:
             b, m = winner
             b.status = "won"
@@ -810,8 +834,11 @@ def _assign_initial_squad(session: Session, league: FantasyLeague, member: Fanta
     """Plantilla inicial aleatoria para poder jugar desde el primer momento."""
     if league.initial_squad <= 0:
         return
-    owned = owned_player_ids(session, league.id)
-    pool = [r for r in all_priced(session, league) if r["player_id"] not in owned]
+    # Fuera los que ya tienen dueño Y los que están en la subasta abierta: si entras en
+    # la liga con el mercado en marcha, te podía tocar de regalo un jugador por el que
+    # los demás están pujando en ese mismo momento.
+    fuera = owned_player_ids(session, league.id) | listed_player_ids(session, league)
+    pool = [r for r in all_priced(session, league) if r["player_id"] not in fuera]
     if not pool:
         return
     rng = random.Random(f"{league.id}:init:{member.id}")
