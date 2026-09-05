@@ -322,6 +322,14 @@ class GoogleBody(BaseModel):
     id_token: str
 
 
+@app.get("/api/auth/config")
+def auth_config():
+    """Qué formas de entrar están activas. El ID de cliente de Google es público (va en el
+    propio botón), y viajar así evita tener que recompilar la web para cambiarlo."""
+    from .config import GOOGLE_CLIENT_ID
+    return {"google_client_id": GOOGLE_CLIENT_ID or None}
+
+
 @app.post("/api/auth/google")
 def google_login(body: GoogleBody, session: Session = Depends(get_session)):
     """Login/registro con Google. La web manda el id_token de Google Identity Services."""

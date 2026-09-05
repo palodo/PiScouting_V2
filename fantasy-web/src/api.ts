@@ -36,6 +36,8 @@ export const api = {
   login: (email: string, password: string) => post("/auth/login", { email, password }),
   signup: (email: string, password: string, name?: string) => post("/auth/signup", { email, password, name }),
   me: () => get("/auth/me"),
+  authConfig: () => get<{ google_client_id: string | null }>("/auth/config"),
+  google: (id_token: string) => post("/auth/google", { id_token }),
 
   competitions: () => get<{ competitions: { competition: string; grupos: string[] }[] }>("/fantasy/competitions"),
   leagues: () => get<any[]>("/fantasy/leagues"),

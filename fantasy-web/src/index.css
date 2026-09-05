@@ -1063,3 +1063,13 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 
 /* el aviso de fase puede llevar una acción debajo */
 .notice .linkbtn { align-self: flex-start; padding: 4px 0 0; color: var(--info); }
+
+/* ------------------------------------------------------------ entrar con Google */
+.orsep {
+  display: flex; align-items: center; gap: 12px; margin: 18px 0 14px;
+  color: var(--text-3); font-size: var(--fs-sm); font-weight: 700;
+}
+.orsep::before, .orsep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+/* Google pinta su propio botón dentro; solo lo centramos y le damos el ancho */
+.gbtn { display: flex; justify-content: center; width: 100%; min-height: 44px; }
+.gbtn > div { width: 100% !important; }

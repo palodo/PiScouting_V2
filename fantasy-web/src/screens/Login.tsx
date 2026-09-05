@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, setToken } from "../api";
 import type { Me } from "../App";
 import { IconAlert } from "../icons";
+import GoogleButton from "../GoogleButton";
 import { Brand, Segmented } from "../ui";
 
 export default function Login({ onAuth }: { onAuth: (me: Me) => void }) {
@@ -10,6 +11,23 @@ export default function Login({ onAuth }: { onAuth: (me: Me) => void }) {
   const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [googleId, setGoogleId] = useState<string | null>(null);
+
+  // si el backend no tiene Google configurado, ni se carga su script
+  useEffect(() => {
+    api.authConfig().then((c) => setGoogleId(c.google_client_id)).catch(() => {});
+  }, []);
+
+  async function entrarConGoogle(idToken: string) {
+    setErr(null); setBusy(true);
+    try {
+      const r = await api.google(idToken);
+      setToken(r.token);
+      onAuth(await api.me());
+    } catch (e: any) {
+      setErr(e.message);
+    } finally { setBusy(false); }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +80,17 @@ export default function Login({ onAuth }: { onAuth: (me: Me) => void }) {
         <button className="btn btn--block btn--lg" disabled={busy}>
           {busy ? <span className="spinner" /> : mode === "login" ? "Entrar" : "Crear cuenta"}
         </button>
+
+        {googleId && (
+          <>
+            <div className="orsep"><span>o</span></div>
+            <GoogleButton clientId={googleId} onToken={entrarConGoogle} onError={setErr} />
+            <p className="hint" style={{ textAlign: "center", margin: "12px 0 0" }}>
+              Con Google no hay contraseña que recordar. Si es tu primera vez, te crea la
+              cuenta con ese email.
+            </p>
+          </>
+        )}
       </form>
     </div>
   );
