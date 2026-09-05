@@ -146,7 +146,7 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
         </label>
         <label className="field">
           <span className="field__label">Tu nombre de mánager</span>
-          <input className="input" value={f.manager_name} placeholder="Pau"
+          <input className="input" value={f.manager_name} placeholder="Cómo quieres que te vean"
             onChange={(e) => set("manager_name", e.target.value)} />
         </label>
         <label className="field" style={{ marginBottom: grupos.length > 1 ? 14 : 0 }}>
@@ -342,7 +342,7 @@ function JoinLeague({ onDone, inicial, onUsada }: {
         </label>
         <label className="field" style={{ marginBottom: 0 }}>
           <span className="field__label">Tu nombre de mánager</span>
-          <input className="input" value={manager} placeholder="Pau"
+          <input className="input" value={manager} placeholder="Cómo quieres que te vean"
             onChange={(e) => setManager(e.target.value)} />
         </label>
       </div>
