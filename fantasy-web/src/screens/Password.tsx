@@ -32,10 +32,14 @@ export function Forgot({ onBack }: { onBack: () => void }) {
         <div style={{ width: "100%", maxWidth: 400 }}>
           <div className="login__head"><Brand size={46} /></div>
           <div className="card card--pad" style={{ textAlign: "center" }}>
-            <span className="empty__ico" style={{ margin: "0 auto 10px", color: "var(--pos)" }}>
-              <IconCheck size={22} />
+            <span className="empty__ico"
+              style={{ margin: "0 auto 10px", color: res.sent ? "var(--pos)" : "var(--accent)" }}>
+              {res.sent ? <IconCheck size={22} /> : <IconAlert size={22} />}
             </span>
-            {res.mail_enabled ? <>
+            {/* `sent` y no `mail_enabled`: con el correo configurado el envío puede fallar
+                igual (clave caducada, cuenta bloqueada...), y decir "mira tu correo" cuando
+                no ha salido nada deja a la gente esperando algo que no llega. */}
+            {res.sent ? <>
               <h2 style={{ fontSize: "var(--fs-lg)", marginBottom: 6 }}>Mira tu correo</h2>
               <p className="hint" style={{ margin: 0 }}>
                 Si <b>{email.trim()}</b> tiene cuenta, le acaba de llegar un enlace para poner
@@ -44,8 +48,12 @@ export function Forgot({ onBack }: { onBack: () => void }) {
             </> : <>
               <h2 style={{ fontSize: "var(--fs-lg)", marginBottom: 6 }}>Pídeselo al administrador</h2>
               <p className="hint" style={{ margin: 0 }}>
-                Todavía no se mandan correos automáticos. Escribe a quien lleva la liga y que
-                te genere un enlace de recuperación: lo tiene a un toque en la app.
+                {res.mail_enabled
+                  ? <>No hemos podido enviarte el correo. Si <b>{email.trim()}</b> tiene cuenta,
+                      escribe a quien lleva la liga: puede generarte un enlace de recuperación
+                      a mano en un momento.</>
+                  : <>Todavía no se mandan correos automáticos. Escribe a quien lleva la liga y
+                      que te genere un enlace de recuperación: lo tiene a un toque en la app.</>}
               </p>
             </>}
           </div>
