@@ -4,7 +4,6 @@ import { Loading, applyTheme, readTheme } from "./ui";
 import Login from "./screens/Login";
 import { Reset } from "./screens/Password";
 import Onboarding, { marcarVisto, yaVisto } from "./screens/Onboarding";
-import Diag from "./screens/Diag";
 import { esInstalada, registrarSW } from "./push";
 import Home from "./screens/Home";
 import League from "./screens/League";
@@ -41,10 +40,6 @@ export default function App() {
     setMe(null);
     setLeagueId(null);
   }
-
-  // /?diag=1 — medidas reales de la pantalla, para arreglar el layout del móvil con
-  // números en vez de a ojo. No hace falta sesión.
-  if (new URLSearchParams(window.location.search).has("diag")) return <Diag />;
 
   if (!booted) return <div className="centered"><Loading label="Abriendo PiFantasy" /></div>;
   // el enlace manda por encima de todo: puede llegar con otra sesión abierta
