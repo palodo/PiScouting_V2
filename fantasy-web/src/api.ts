@@ -60,7 +60,15 @@ export const api = {
   cancelBid: (id: number, listing_id: number) => post(`/fantasy/leagues/${id}/bid/cancel`, { listing_id }),
   closeMarket: (id: number) => post(`/fantasy/leagues/${id}/market/close`),
   openMarket: (id: number) => post(`/fantasy/leagues/${id}/market/open`),
+  // "vender" ahora es PONER EN VENTA: la liga manda una oferta al día durante 3 días
   sell: (id: number, player_id: number) => post(`/fantasy/leagues/${id}/sell`, { player_id }),
+  cancelSale: (id: number, player_id: number) => post(`/fantasy/leagues/${id}/sell/cancel`, { player_id }),
+  players: (id: number) => get(`/fantasy/leagues/${id}/players`),
+  offers: (id: number) => get<{ received: any[]; sent: any[] }>(`/fantasy/leagues/${id}/offers`),
+  makeOffer: (id: number, player_id: number, amount: number) =>
+    post(`/fantasy/leagues/${id}/offers`, { player_id, amount }),
+  resolveOffer: (id: number, offerId: number, accept: boolean) =>
+    post(`/fantasy/leagues/${id}/offers/${offerId}/${accept ? "accept" : "reject"}`),
   lineup: (id: number, starter_ids: number[]) => post(`/fantasy/leagues/${id}/lineup`, { starter_ids }),
   advance: (id: number) => post(`/fantasy/leagues/${id}/advance`),
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),

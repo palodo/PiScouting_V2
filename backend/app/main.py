@@ -814,13 +814,76 @@ def fantasy_market_open(league_id: int, user: User = Depends(auth.get_current_us
         raise HTTPException(400, str(e))
 
 
+class OfferBody(BaseModel):
+    player_id: int
+    amount: float
+
+
+@app.get("/api/fantasy/leagues/{league_id}/players")
+def fantasy_players(league_id: int, user: User = Depends(auth.get_current_user),
+                    session: Session = Depends(get_session)):
+    """Todos los jugadores de la conferencia, con dueño y cláusula. Para buscar y
+    comparar; el orden y los filtros los hace la web."""
+    lg = _get_league(session, league_id)
+    member = fantasy_mod.member_of(session, league_id, user.id)
+    return {"players": fantasy_mod.league_players(session, lg, member),
+            "my_member_id": member.id if member else None}
+
+
+@app.get("/api/fantasy/leagues/{league_id}/offers")
+def fantasy_offers(league_id: int, user: User = Depends(auth.get_current_user),
+                   session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    member = fantasy_mod.member_of(session, league_id, user.id)
+    return fantasy_mod.offers_for(session, lg, member)
+
+
+@app.post("/api/fantasy/leagues/{league_id}/offers")
+def fantasy_offer_make(league_id: int, body: OfferBody,
+                       user: User = Depends(auth.get_current_user),
+                       session: Session = Depends(get_session)):
+    """Oferta por el jugador de otro mánager."""
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.make_offer(session, lg, m, body.player_id, body.amount)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/offers/{offer_id}/{decision}")
+def fantasy_offer_resolve(league_id: int, offer_id: int, decision: str,
+                          user: User = Depends(auth.get_current_user),
+                          session: Session = Depends(get_session)):
+    if decision not in ("accept", "reject"):
+        raise HTTPException(400, "Decisión no válida")
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.resolve_offer(session, lg, m, offer_id, decision == "accept")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/fantasy/leagues/{league_id}/sell/cancel")
+def fantasy_sell_cancel(league_id: int, body: PlayerBody,
+                        user: User = Depends(auth.get_current_user),
+                        session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = _member_or_403(session, league_id, user.id)
+    try:
+        return fantasy_mod.cancel_sale(session, lg, m, body.player_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/fantasy/leagues/{league_id}/sell")
 def fantasy_sell(league_id: int, body: PlayerBody, user: User = Depends(auth.get_current_user),
                  session: Session = Depends(get_session)):
     lg = _get_league(session, league_id)
     m = _member_or_403(session, league_id, user.id)
     try:
-        return fantasy_mod.sell(session, lg, m, body.player_id)
+        return fantasy_mod.put_on_sale(session, lg, m, body.player_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
 

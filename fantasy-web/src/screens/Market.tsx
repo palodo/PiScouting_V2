@@ -10,8 +10,9 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 
 export default function MarketTab({
   lg, market, clauses, admin, busy, view, onView,
-  onOpenPlayer, onBid, onClause, onForceOpen, onForceClose,
+  onOpenPlayer, onBid, onClause, onForceOpen, onForceClose, offers, offersUI,
 }: any) {
+  const pendientes = offers?.received?.length ?? 0;
   return (
     <>
       <MarketHead lg={lg} market={market} admin={admin} busy={busy}
@@ -21,12 +22,15 @@ export default function MarketTab({
         <Segmented value={view} onChange={onView} options={[
           { v: "subastas", label: "Subastas" },
           { v: "clausulas", label: "Cláusulas" },
+          { v: "ofertas", label: pendientes ? `Ofertas · ${pendientes}` : "Ofertas" },
         ]} />
       </div>
 
       {view === "subastas"
         ? <Auctions lg={lg} market={market} busy={busy} onOpenPlayer={onOpenPlayer} onBid={onBid} />
-        : <Clauses lg={lg} data={clauses} busy={busy} onOpenPlayer={onOpenPlayer} onClause={onClause} />}
+        : view === "clausulas"
+          ? <Clauses lg={lg} data={clauses} busy={busy} onOpenPlayer={onOpenPlayer} onClause={onClause} />
+          : offersUI}
     </>
   );
 }

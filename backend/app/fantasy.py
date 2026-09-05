@@ -40,7 +40,7 @@ from .config import FANTASY_COMPETITIONS
 from .models import (
     Team, Player, Match, PlayerMatchStat,
     FantasyLeague, FantasyMember, FantasyPick, FantasyListing, FantasyBid, FantasyEvent,
-    FantasyNotification,
+    FantasyNotification, FantasyOffer,
     FantasyJornadaScore,
 )
 
@@ -770,7 +770,7 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
                   budget: float = 100.0, squad_size: int = 10, lineup_size: int = 5,
                   win_bonus: float = 4.0, start_jornada: Optional[int] = None,
                   market_weekday: int = 4, market_hour: int = 20,
-                  market_duration_h: int = 24, market_size: int = 10,
+                  market_duration_h: int = 24, market_size: int = 15,
                   initial_squad: int = 5, clause_factor: float = 2.0,
                   clause_lock_h: int = 24, open_now: bool = True,
                   sim_mode: Optional[bool] = None, play_weekday: int = 5, play_hour: int = 18,
@@ -933,10 +933,22 @@ def market(session: Session, league: FantasyLeague, member: Optional[FantasyMemb
     }
 
 
+SALE_DAYS = 3          # días que dura el escaparate de una venta
+SALE_MIN = -0.05       # la liga ofrece entre un 5% menos...
+SALE_MAX = 0.10        # ...y un 10% más del valor de mercado
+
+
 def committed_amount(session: Session, member_id: int) -> float:
+    """Dinero apalabrado: pujas vivas y ofertas hechas a otros mánagers.
+
+    Cuenta como gastado aunque todavía no lo esté: si no, se podría pujar y ofertar
+    varias veces el mismo dinero y acabar debiendo más de lo que se tiene."""
     bids = session.exec(select(FantasyBid).where(
         FantasyBid.member_id == member_id, FantasyBid.status == "active")).all()
-    return round(sum(b.amount for b in bids), 1)
+    ofertas = session.exec(select(FantasyOffer).where(
+        FantasyOffer.from_member_id == member_id,
+        FantasyOffer.status == "pending")).all()
+    return round(sum(b.amount for b in bids) + sum(o.amount for o in ofertas), 1)
 
 
 def place_bid(session: Session, league: FantasyLeague, member: FantasyMember,
@@ -1215,6 +1227,38 @@ def player_detail(session: Session, league: FantasyLeague, player_id: int,
     }
 
 
+def league_players(session: Session, league: FantasyLeague,
+                   member) -> list[dict]:
+    """Todos los jugadores de la conferencia con su dueño, para el buscador y los
+    rankings. Es la foto completa: quién rinde, cuánto vale y de quién es."""
+    info = all_priced(session, league)
+    now = utcnow()
+    dueno: dict[int, tuple] = {}
+    for m in _members(session, league.id):
+        for p in picks_of(session, m.id):
+            locked = bool(p.clause_locked_until and now < p.clause_locked_until)
+            dueno[p.player_id] = (m.id, m.manager_name, p.clause, locked)
+    en_subasta = listed_player_ids(session, league)
+    out = []
+    for r in info:
+        d = dueno.get(r["player_id"])
+        out.append({
+            "player_id": r["player_id"], "name": r["name"], "feb_code": r["feb_code"],
+            "team": r["team"], "price": r["price"], "fp_avg": r.get("fp_avg", 0),
+            "fp_form": r.get("fp_form", 0), "val_avg": r.get("val_avg", 0),
+            "pm_avg": r.get("pm_avg", 0), "games": r.get("games", 0),
+            "departed": bool(r.get("departed")),
+            "owner_member_id": d[0] if d else None,
+            "owner": d[1] if d else None,
+            "clause": d[2] if d else None,
+            "clause_locked": d[3] if d else False,
+            "mine": bool(d and member and d[0] == member.id),
+            "listed": r["player_id"] in en_subasta,
+        })
+    out.sort(key=lambda x: -x["fp_avg"])
+    return out
+
+
 def league_clauses(session: Session, league: FantasyLeague,
                    member: Optional[FantasyMember]) -> list[dict]:
     """Todos los jugadores con dueño de la liga y su cláusula, de la más barata a la más
@@ -1268,21 +1312,237 @@ def member_squad(session: Session, league: FantasyLeague, member_id: int) -> lis
             "budget": m.budget_remaining, "points": m.total_points}
 
 
-def sell(session: Session, league: FantasyLeague, member: FantasyMember, player_id: int) -> dict:
+def put_on_sale(session: Session, league: FantasyLeague, member: FantasyMember,
+                player_id: int) -> dict:
+    """Pone a un jugador en el escaparate.
+
+    No se vende al momento a propósito: durante tres días la liga manda una oferta al
+    día, entre un 5% menos y un 10% mas de su valor. Aceptas la que quieras, o ninguna.
+    """
     sync_market(session, league)
-    _require(session, league, "mercado", what="podrás vender")
+    _require(session, league, "mercado", what="podrás poner en venta")
     pick = session.exec(select(FantasyPick).where(
         FantasyPick.member_id == member.id, FantasyPick.player_id == player_id)).first()
     if not pick:
         raise ValueError("No tienes a ese jugador")
-    price = price_map(session, league).get(player_id, pick.buy_price)
-    member.budget_remaining = round(member.budget_remaining + price, 1)
-    session.delete(pick)
-    session.add(member)
-    pl = session.get(Player, player_id)
-    _log(session, league.id, "sale", f"💸 {member.manager_name} vende a {_nice(pl.name if pl else None)} por {price} M€")
+    if pick.sale_started_at:
+        raise ValueError("Ese jugador ya está en venta")
+    pick.sale_started_at = utcnow()
+    pick.sale_offers_made = 0
+    session.add(pick)
     session.commit()
-    return {"ok": True, "price": price, "budget_remaining": member.budget_remaining}
+    sync_offers(session, league)          # la primera oferta entra ya
+    pl = session.get(Player, player_id)
+    return {"ok": True, "player": _nice(pl.name if pl else None), "days": SALE_DAYS}
+
+
+def cancel_sale(session: Session, league: FantasyLeague, member: FantasyMember,
+                player_id: int) -> dict:
+    """Lo retira del escaparate; caducan las ofertas de la liga que siguieran vivas."""
+    pick = session.exec(select(FantasyPick).where(
+        FantasyPick.member_id == member.id, FantasyPick.player_id == player_id)).first()
+    if not pick:
+        raise ValueError("No tienes a ese jugador")
+    pick.sale_started_at = None
+    pick.sale_offers_made = 0
+    session.add(pick)
+    for o in session.exec(select(FantasyOffer).where(
+            FantasyOffer.league_id == league.id, FantasyOffer.player_id == player_id,
+            FantasyOffer.to_member_id == member.id,
+            FantasyOffer.from_member_id == None,            # noqa: E711
+            FantasyOffer.status == "pending")).all():
+        o.status = "cancelled"
+        o.resolved_at = utcnow()
+        session.add(o)
+    session.commit()
+    return {"ok": True}
+
+
+def sync_offers(session: Session, league: FantasyLeague) -> None:
+    """Genera las ofertas de la liga que toquen y caduca las pasadas de plazo.
+
+    Perezoso, como el mercado: se llama en cada consulta y así no hace falta ningún
+    proceso en segundo plano.
+    """
+    ahora = utcnow()
+    cambios = False
+
+    for o in session.exec(select(FantasyOffer).where(
+            FantasyOffer.league_id == league.id, FantasyOffer.status == "pending")).all():
+        if o.expires_at and o.expires_at <= ahora:
+            o.status = "expired"
+            o.resolved_at = ahora
+            session.add(o)
+            cambios = True
+
+    precios = price_map(session, league)
+    for m in _members(session, league.id):
+        for pick in picks_of(session, m.id):
+            if not pick.sale_started_at:
+                continue
+            fin = pick.sale_started_at + timedelta(days=SALE_DAYS)
+            if ahora >= fin and pick.sale_offers_made >= SALE_DAYS:
+                pick.sale_started_at = None      # se acabó el escaparate
+                pick.sale_offers_made = 0
+                session.add(pick)
+                cambios = True
+                continue
+            # una oferta por día: la primera al ponerlo en venta, luego a las 24h y 48h
+            toca = pick.sale_started_at + timedelta(days=pick.sale_offers_made)
+            if pick.sale_offers_made >= SALE_DAYS or ahora < toca:
+                continue
+            valor = precios.get(pick.player_id, pick.buy_price)
+            factor = 1 + random.uniform(SALE_MIN, SALE_MAX)
+            importe = max(PRICE_MIN, round(valor * factor, 1))
+            session.add(FantasyOffer(
+                league_id=league.id, player_id=pick.player_id, to_member_id=m.id,
+                from_member_id=None, amount=importe, expires_at=fin))
+            pick.sale_offers_made += 1
+            session.add(pick)
+            pl = session.get(Player, pick.player_id)
+            quedan = SALE_DAYS - pick.sale_offers_made
+            _notify(session, league, m, "offer",
+                    f"Oferta por {_nice(pl.name if pl else None)}",
+                    f"Te ofrecen {importe} M€"
+                    + (f" · te quedan {quedan} ofertas mas" if quedan else
+                       " · es la ultima"))
+            cambios = True
+    if cambios:
+        session.commit()
+
+
+def make_offer(session: Session, league: FantasyLeague, member: FantasyMember,
+               player_id: int, amount: float) -> dict:
+    """Oferta a otro mánager por uno de sus jugadores. Él decide."""
+    sync_market(session, league)
+    _require(session, league, "mercado", what="podrás hacer ofertas")
+    amount = round(float(amount), 1)
+    if amount <= 0:
+        raise ValueError("La oferta tiene que ser mayor que cero")
+    pick = session.exec(select(FantasyPick).join(
+        FantasyMember, FantasyMember.id == FantasyPick.member_id).where(
+        FantasyMember.league_id == league.id, FantasyPick.player_id == player_id)).first()
+    if not pick:
+        raise ValueError("Ese jugador no lo tiene nadie: sale por el mercado")
+    if pick.member_id == member.id:
+        raise ValueError("Ese jugador ya es tuyo")
+    if len(picks_of(session, member.id)) >= league.squad_size:
+        raise ValueError(f"Plantilla llena ({league.squad_size} jugadores)")
+    libre = member.budget_remaining - committed_amount(session, member.id)
+    if amount > libre + 1e-6:
+        raise ValueError(f"Necesitas {amount} M€ libres (tienes {round(libre, 1)})")
+    previa = session.exec(select(FantasyOffer).where(
+        FantasyOffer.league_id == league.id, FantasyOffer.player_id == player_id,
+        FantasyOffer.from_member_id == member.id,
+        FantasyOffer.status == "pending")).first()
+    if previa:                       # cambiar de idea sí, pero no acumular ofertas
+        previa.status = "cancelled"
+        previa.resolved_at = utcnow()
+        session.add(previa)
+    session.add(FantasyOffer(league_id=league.id, player_id=player_id,
+                             to_member_id=pick.member_id, from_member_id=member.id,
+                             amount=amount, expires_at=utcnow() + timedelta(days=SALE_DAYS)))
+    pl = session.get(Player, player_id)
+    _notify(session, league, pick.member_id, "offer",
+            f"{member.manager_name} quiere a {_nice(pl.name if pl else None)}",
+            f"Te ofrece {amount} M€")
+    session.commit()
+    return {"ok": True, "amount": amount}
+
+
+def resolve_offer(session: Session, league: FantasyLeague, member: FantasyMember,
+                  offer_id: int, accept: bool) -> dict:
+    """El dueño acepta o rechaza. Al aceptar se mueve el dinero y el jugador."""
+    o = session.get(FantasyOffer, offer_id)
+    if not o or o.league_id != league.id:
+        raise ValueError("Esa oferta no existe")
+    if o.to_member_id != member.id:
+        raise ValueError("Esa oferta no es tuya")
+    if o.status != "pending":
+        raise ValueError("Esa oferta ya no está en pie")
+    if not accept:
+        o.status = "rejected"
+        o.resolved_at = utcnow()
+        session.add(o)
+        session.commit()
+        return {"ok": True, "accepted": False}
+
+    _require(session, league, "mercado", what="podrás cerrar el traspaso")
+    pick = session.exec(select(FantasyPick).where(
+        FantasyPick.member_id == member.id, FantasyPick.player_id == o.player_id)).first()
+    if not pick:
+        raise ValueError("Ya no tienes a ese jugador")
+    pl = session.get(Player, o.player_id)
+    nombre = _nice(pl.name if pl else None)
+    comprador = session.get(FantasyMember, o.from_member_id) if o.from_member_id else None
+
+    if comprador:      # traspaso entre mánagers
+        if len(picks_of(session, comprador.id)) >= league.squad_size:
+            raise ValueError(f"{comprador.manager_name} tiene la plantilla llena")
+        if o.amount > comprador.budget_remaining + 1e-6:
+            raise ValueError(f"{comprador.manager_name} ya no tiene ese dinero")
+        comprador.budget_remaining = round(comprador.budget_remaining - o.amount, 1)
+        titulares = sum(1 for p in picks_of(session, comprador.id) if p.starter)
+        valor = price_map(session, league).get(o.player_id, o.amount)
+        session.delete(pick)
+        _new_pick(session, league, comprador, o.player_id, o.amount, valor,
+                  titulares < league.lineup_size)
+        session.add(comprador)
+        _log(session, league.id, "signing",
+             f"🤝 {comprador.manager_name} ficha a {nombre} de "
+             f"{member.manager_name} por {o.amount} M€")
+        _notify(session, league, comprador, "signing", f"Has fichado a {nombre}",
+                f"{member.manager_name} ha aceptado tus {o.amount} M€")
+    else:              # se lo queda la liga
+        session.delete(pick)
+        _log(session, league.id, "sale",
+             f"💸 {member.manager_name} vende a {nombre} por {o.amount} M€")
+
+    member.budget_remaining = round(member.budget_remaining + o.amount, 1)
+    session.add(member)
+    o.status = "accepted"
+    o.resolved_at = utcnow()
+    session.add(o)
+    for otra in session.exec(select(FantasyOffer).where(
+            FantasyOffer.league_id == league.id, FantasyOffer.player_id == o.player_id,
+            FantasyOffer.status == "pending")).all():
+        otra.status = "cancelled"       # las demás se caen solas
+        otra.resolved_at = utcnow()
+        session.add(otra)
+    session.commit()
+    return {"ok": True, "accepted": True, "amount": o.amount,
+            "budget_remaining": member.budget_remaining}
+
+
+def offers_for(session: Session, league: FantasyLeague,
+               member: Optional[FantasyMember]) -> dict:
+    """Las que te han hecho y las que has hecho tú."""
+    if not member:
+        return {"received": [], "sent": []}
+    sync_offers(session, league)
+    info = {r["player_id"]: r for r in all_priced(session, league)}
+    nombres = {m.id: m.manager_name for m in _members(session, league.id)}
+
+    def fila(o):
+        d = info.get(o.player_id, {})
+        return {
+            "id": o.id, "player_id": o.player_id, "name": d.get("name", "?"),
+            "feb_code": d.get("feb_code"), "team": d.get("team"),
+            "price": d.get("price", 0), "fp_avg": d.get("fp_avg", 0),
+            "amount": o.amount, "from_member_id": o.from_member_id,
+            "from": nombres.get(o.from_member_id) if o.from_member_id else None,
+            "to": nombres.get(o.to_member_id),
+            "expires_at": o.expires_at.isoformat() + "Z" if o.expires_at else None,
+            "created_at": o.created_at.isoformat() + "Z",
+        }
+
+    recibidas = session.exec(select(FantasyOffer).where(
+        FantasyOffer.league_id == league.id, FantasyOffer.to_member_id == member.id,
+        FantasyOffer.status == "pending").order_by(FantasyOffer.id.desc())).all()
+    enviadas = session.exec(select(FantasyOffer).where(
+        FantasyOffer.league_id == league.id, FantasyOffer.from_member_id == member.id,
+        FantasyOffer.status == "pending").order_by(FantasyOffer.id.desc())).all()
+    return {"received": [fila(o) for o in recibidas], "sent": [fila(o) for o in enviadas]}
 
 
 def set_lineup(session: Session, league: FantasyLeague, member: FantasyMember,
@@ -1611,6 +1871,9 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
             "val_avg": d.get("val_avg", 0), "form": d.get("form", 0),
             "fp_avg": d.get("fp_avg", 0), "fp_form": d.get("fp_form", 0),
             "games": d.get("games", 0),
+            # puesto en venta: la liga le va mandando ofertas
+            "on_sale": bool(p.sale_started_at),
+            "sale_offers_made": p.sale_offers_made,
             # fichó por otro equipo: sigue en tu plantilla pero ya no puntúa
             "departed": bool(d.get("departed")),
             "clause": p.clause, "clause_locked": locked,

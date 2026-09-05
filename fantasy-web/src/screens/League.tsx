@@ -6,25 +6,28 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Me } from "../App";
 import {
-  IconActivity, IconAlert, IconArrowLeft, IconCheck, IconCopy, IconLock, IconMarket,
-  IconPlay, IconSquad, IconStar, IconStarOn, IconTrophy,
+  IconActivity, IconAlert, IconArrowLeft, IconCheck, IconCopy, IconLock,
+  IconMarket, IconPlay, IconSearch, IconSquad, IconStar, IconStarOn, IconTrophy,
 } from "../icons";
 import { ClauseMeta, Delta, FeedRow, PlayerRow, fp, phaseInfo } from "../parts";
 import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
 import MarketTab from "./Market";
+import OffersTab from "./Offers";
+import PlayersTab from "./Players";
 import NotificationBell from "./Notifications";
 import TableTab from "./Table";
 import {
   BidSheet, ClauseSheet, InviteSheet, ManagerJornadaSheet, ManagerSheet, MatchesSheet,
-  PlayerSheet, ScoringSheet,
+  OfferSheet, PlayerSheet, ScoringSheet,
 } from "./sheets";
 
-type Tab = "equipo" | "mercado" | "liga" | "feed";
+type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "feed";
 const TABS: [Tab, (p: any) => any, string][] = [
   ["equipo", IconSquad, "Equipo"],
   ["mercado", IconMarket, "Mercado"],
+  ["jugadores", IconSearch, "Jugadores"],
   ["liga", IconTrophy, "Liga"],
   ["feed", IconActivity, "Actividad"],
 ];
@@ -39,7 +42,7 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 
 export default function League({ id, me, onBack }: { id: number; me: Me; onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("equipo");
-  const [marketView, setMarketView] = useState<"subastas" | "clausulas">("subastas");
+  const [marketView, setMarketView] = useState<"subastas" | "clausulas" | "ofertas">("subastas");
   const [data, setData] = useState<any>(null);
   const [market, setMarket] = useState<any>(null);
   const [clauses, setClauses] = useState<any>(null);
@@ -55,11 +58,16 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [jr, setJr] = useState<any>(null);
   const [matchesFor, setMatchesFor] = useState<any>(null);
   const [invitando, setInvitando] = useState(false);
+  const [offers, setOffers] = useState<any>(null);
+  const [players, setPlayers] = useState<any>(null);
+  const [offerFor, setOfferFor] = useState<any>(null);
   const inited = useRef(false);
 
   async function load() { const d = await api.league(id); setData(d); return d; }
   async function loadMarket() { const m = await api.market(id); setMarket(m); return m; }
   async function loadClauses() { const c = await api.clauses(id); setClauses(c); return c; }
+  async function loadOffers() { const o = await api.offers(id); setOffers(o); return o; }
+  async function loadPlayers() { const p = await api.players(id); setPlayers(p); return p; }
   function openMatches(jornada?: number) {
     setMatchesFor({ loading: true });
     api.matches(id, jornada).then(setMatchesFor).catch(() => setMatchesFor(null));
@@ -75,7 +83,9 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   // al cambiar de pestaña refrescamos: la liga es en vivo (fichajes, cláusulas, mánagers)
   useEffect(() => {
     load();
+    loadOffers().catch(() => setOffers({ received: [], sent: [] }));
     if (tab === "mercado") { loadMarket(); loadClauses().catch(() => setClauses({ players: [] })); }
+    if (tab === "jugadores" && !players) loadPlayers().catch(() => setPlayers({ players: [] }));
   }, [tab]);
   useEffect(() => {
     if (tab !== "mercado" || !data?.league?.market_open) return;
@@ -117,6 +127,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
       await load();
       if (market || tab === "mercado") await loadMarket();
       if (clauses) await loadClauses();
+      await loadOffers().catch(() => {});
+      if (players) await loadPlayers().catch(() => {});
       if (note) setMsg({ text: note });
     } catch (e: any) {
       setMsg({ text: e.message, bad: true });
@@ -201,10 +213,20 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
 
         {tab === "mercado" && (
           <MarketTab lg={lg} market={market} clauses={clauses} admin={admin} busy={busy}
+            offers={offers}
+            offersUI={<OffersTab data={offers} busy={busy}
+              onOpen={(pid: number) => openPlayer(pid)}
+              onAccept={(o: any) => act(() => api.resolveOffer(id, o.id, true),
+                o.from ? `Traspaso cerrado: ${o.amount} M\u20ac` : `Vendido por ${o.amount} M\u20ac`)}
+              onReject={(o: any) => act(() => api.resolveOffer(id, o.id, false), "Oferta rechazada")} />}
             view={marketView} onView={setMarketView}
             onOpenPlayer={openPlayer} onBid={setBidFor} onClause={setClauseFor}
             onForceOpen={() => act(() => api.openMarket(id), "Mercado abierto")}
             onForceClose={() => act(() => api.closeMarket(id), "Mercado cerrado y pujas resueltas")} />
+        )}
+
+        {tab === "jugadores" && (
+          <PlayersTab data={players} onOpen={(pid: number) => openPlayer(pid)} />
         )}
 
         {tab === "liga" && (
@@ -241,7 +263,26 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           onClose={() => setPlayerFor(null)}
           onClause={(p: any) => { setPlayerFor(null); setClauseFor(p); }}
           onRaise={async (pid: number, v: number) => { setPlayerFor(null); await act(() => api.raiseClause(id, pid, v), "Cláusula subida"); }}
-          onSell={async (pid: number) => { setPlayerFor(null); await act(() => api.sell(id, pid), "Jugador vendido"); }} />
+          onSell={async (pid: number) => {
+            setPlayerFor(null);
+            await act(() => api.sell(id, pid), "En venta: te llegará una oferta al día");
+          }}
+          onCancelSale={async (pid: number) => {
+            setPlayerFor(null);
+            await act(() => api.cancelSale(id, pid), "Retirado de la venta");
+          }}
+          onOffer={(p: any) => { setPlayerFor(null); setOfferFor(p); }} />
+      )}
+
+      {offerFor && (
+        <OfferSheet p={offerFor} free={freeBudget} busy={busy}
+          onClose={() => setOfferFor(null)}
+          onSend={async (amount: number) => {
+            const quien = offerFor.owner ?? "su mánager";
+            setOfferFor(null);
+            await act(() => api.makeOffer(id, offerFor.player_id, amount),
+              `Oferta enviada a ${quien}`);
+          }} />
       )}
 
       {clauseFor && (
@@ -294,7 +335,9 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
             <button key={k} className={"tab" + (tab === k ? " is-on" : "")} onClick={() => setTab(k)}>
               <span className="tab__ico"><Icon size={21} strokeWidth={tab === k ? 2.1 : 1.7} /></span>
               {label}
-              {k === "mercado" && lg.market_open && tab !== "mercado" && <span className="tab__badge" />}
+              {k === "mercado" && tab !== "mercado"
+                && ((offers?.received?.length ?? 0) > 0 || lg.market_open)
+                && <span className="tab__badge" />}
             </button>
           ))}
         </div>

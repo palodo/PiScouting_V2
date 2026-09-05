@@ -156,7 +156,7 @@ class FantasyLeague(SQLModel, table=True):
     market_weekday: int = 4      # 0=lunes … 6=domingo (por defecto viernes)
     market_hour: int = 20        # hora local (Europe/Madrid) a la que abre
     market_duration_h: int = 24  # horas que permanece abierto
-    market_size: int = 10        # jugadores que salen a subasta en cada tanda
+    market_size: int = 15        # jugadores que salen a subasta en cada tanda
     market_round: int = 0
     market_opens_at: Optional[datetime] = None   # UTC
     market_closes_at: Optional[datetime] = None  # UTC
@@ -200,6 +200,10 @@ class FantasyPick(SQLModel, table=True):
     starter: bool = Field(default=False, index=True)
     clause: float = 0.0                                  # cláusula de rescisión
     clause_locked_until: Optional[datetime] = None       # blindaje tras fichar (UTC)
+    # Puesto en venta: la liga manda una oferta al día durante tres días. No se vende
+    # al instante a propósito, para que deshacerse de alguien tenga su punto de riesgo.
+    sale_started_at: Optional[datetime] = None
+    sale_offers_made: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -259,6 +263,30 @@ class FantasyJornadaScore(SQLModel, table=True):
     # jornada pasada usaba la plantilla de HOY y el desglose no cuadraba con el total.
     starters: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyOffer(SQLModel, table=True):
+    """Una oferta por un jugador con dueño.
+
+    Dos clases, misma mesa:
+      · `from_member_id` a None → la ofrece LA LIGA, porque su dueño lo puso en venta.
+      · `from_member_id` con valor → otro mánager quiere ficharlo por las buenas.
+
+    El importe se guarda al crearla: una oferta que cambia de precio mientras la piensas
+    no es una oferta.
+    """
+    __tablename__ = "fantasy_offers"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    player_id: int = Field(foreign_key="players.id", index=True)
+    to_member_id: int = Field(foreign_key="fantasy_members.id", index=True)   # el dueño
+    from_member_id: Optional[int] = Field(default=None, foreign_key="fantasy_members.id", index=True)
+    amount: float = 0.0
+    status: str = Field(default="pending", index=True)  # pending|accepted|rejected|expired|cancelled
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    expires_at: Optional[datetime] = Field(default=None, index=True)
+    resolved_at: Optional[datetime] = None
 
 
 class PushSubscription(SQLModel, table=True):

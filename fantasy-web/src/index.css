@@ -1134,3 +1134,24 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
   display: block; font-family: var(--display); font-size: var(--fs-3xl); font-weight: 800;
   letter-spacing: 0.22em; text-indent: 0.22em; line-height: 1.15;
 }
+
+/* ------------------------------------------------------------------ ofertas */
+.offer { margin-bottom: 10px; }
+.offer .prow { margin-bottom: 0; border-radius: var(--r-md) var(--r-md) 0 0; border-bottom: 0; }
+.offer__deal {
+  display: flex; align-items: center; gap: 12px; padding: 11px 13px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+}
+.offer__k {
+  display: block; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.offer__v {
+  display: block; font-family: var(--display); font-size: var(--fs-xl); font-weight: 800;
+  line-height: 1.15;
+}
+.offer__dif { font-size: var(--fs-xs); font-weight: 700; }
+.offer__btns { margin-left: auto; display: flex; gap: 7px; flex-shrink: 0; }
+.prow__rank { color: var(--text-3); font-weight: 800; }
+.prow__free { color: var(--pos); font-weight: 700; }

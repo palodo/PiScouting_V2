@@ -4,8 +4,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import {
-  IconBolt, IconCheck, IconClock, IconClose, IconCopy, IconGavel, IconLock, IconMinus,
-  IconPlus, IconShare, IconWhatsApp,
+  IconBolt, IconCheck, IconClock, IconClose, IconCoin, IconCopy, IconGavel, IconLock,
+  IconMinus, IconPlus, IconShare, IconWhatsApp,
 } from "../icons";
 import { PfBox, PlayerRow, lockLabel } from "../parts";
 import { Loading, Photo, Section, Sheet, SheetClose, fullName, prettyName, prettyTeam } from "../ui";
@@ -14,7 +14,7 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 
 /* ---------------------------------------------------------- ficha completa */
 export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, freeBudget, busy,
-  onClose, onClause, onRaise, onSell }: any) {
+  onClose, onClause, onRaise, onSell, onCancelSale, onOffer }: any) {
   const [d, setD] = useState<any>(null);
   const [mode, setMode] = useState<"view" | "raise" | "sell">("view");
   const [newClause, setNewClause] = useState(0);
@@ -160,15 +160,23 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
           </button>
         )}
 
+        {rival && (
+          <button className="btn btn--ghost btn--block" disabled={busy || !canTrade}
+            onClick={() => onOffer({ ...d, owner: d.owner })}>
+            <IconCoin size={17} />Hacerle una oferta a {d.owner}
+          </button>
+        )}
+
         {mine && mode === "view" && (
           <>
             <button className="btn btn--ghost btn--block" disabled={!canTrade}
               onClick={() => setMode("raise")}>
               <IconLock size={17} />Subir cláusula
             </button>
-            <button className="btn btn--danger btn--block" disabled={!canTrade}
-              onClick={() => setMode("sell")}>
-              Vender por {d.price} M€
+            <button className={"btn btn--block " + (d.on_sale ? "btn--quiet" : "btn--danger")}
+              disabled={!canTrade}
+              onClick={() => d.on_sale ? onCancelSale(d.player_id) : setMode("sell")}>
+              {d.on_sale ? "Retirar de la venta" : "Poner en venta"}
             </button>
           </>
         )}
@@ -176,11 +184,14 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
         {mine && mode === "sell" && (
           <>
             <p className="hint" style={{ margin: 0 }}>
-              Se vende al precio de mercado de hoy: <b>{d.price} M€</b> al saldo. No se puede deshacer.
+              No se vende al instante. Durante <b>3 días</b> la liga te mandará{" "}
+              <b>una oferta al día</b>, entre un 5 % menos y un 10 % más de su valor
+              ({d.price} M€). Aceptas la que quieras, o ninguna: mientras tanto sigue
+              siendo tuyo y puede jugar.
             </p>
             <button className="btn btn--danger btn--block" disabled={busy}
               onClick={() => onSell(d.player_id)}>
-              <IconCheck size={17} />Confirmar venta
+              <IconCheck size={17} />Ponerlo en venta
             </button>
             <button className="btn btn--quiet btn--block" onClick={() => setMode("view")}>Cancelar</button>
           </>
@@ -708,6 +719,73 @@ export function InviteSheet({ lg, onClose, onCopied }: {
         Quien toque el enlace entra directo a unirse, con el código ya puesto: solo tiene
         que elegir su nombre de mánager. El código no caduca y sirve para todos.
       </p>
+    </Sheet>
+  );
+}
+
+
+/* ------------------------------------------------ oferta a otro mánager */
+/**
+ * Ofrecer por el jugador de otro. A diferencia del clausulazo, aquí él decide: por eso
+ * se puede ofrecer lo que se quiera, no hay un precio impuesto.
+ */
+export function OfferSheet({ p, free, busy, onClose, onSend }: {
+  p: any; free: number; busy?: boolean; onClose: () => void; onSend: (n: number) => void;
+}) {
+  const valor = p.price ?? 0;
+  const [amount, setAmount] = useState<number>(r1(valor * 1.1));
+  const max = r1(free);
+  const paso = (d: number) => setAmount((a) => Math.max(0.5, Math.min(max, r1(a + d))));
+  const vale = amount > 0 && amount <= max + 1e-6;
+  const dif = r1(amount - valor);
+
+  return (
+    <Sheet onClose={onClose} title="Hacer una oferta">
+      <div className="sheet__head">
+        <Photo code={p.feb_code} name={p.name} />
+        <div className="sheet__body">
+          <h2 style={{ fontSize: "var(--fs-lg)" }}>{fullName(p.name)}</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>{prettyTeam(p.team)}</div>
+          <div className="chiprow" style={{ marginTop: 6 }}>
+            <span className="chip chip--accent">Vale <b>{valor}</b> M€</span>
+            {p.owner && <span className="chip">de {p.owner}</span>}
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      <div className="stepper">
+        <button className="stepper__btn" aria-label="Bajar" onClick={() => paso(-0.5)}>
+          <IconMinus size={20} /></button>
+        <input type="number" step="0.1" value={amount} inputMode="decimal"
+          onChange={(e) => setAmount(Number(e.target.value))} />
+        <button className="stepper__btn" aria-label="Subir" onClick={() => paso(0.5)}>
+          <IconPlus size={20} /></button>
+      </div>
+      <div className="quick">
+        {[0, 10, 25, 50].map((pct) => (
+          <button key={pct} onClick={() => setAmount(Math.min(max, r1(valor * (1 + pct / 100))))}>
+            {pct === 0 ? "Su valor" : `+${pct}%`}
+          </button>
+        ))}
+      </div>
+
+      <p className="hint" style={{ margin: "12px 0 0" }}>
+        {dif >= 0
+          ? <>Ofreces <b>{Math.abs(dif)} M€ más</b> de lo que vale.</>
+          : <>Ofreces <b>{Math.abs(dif)} M€ menos</b> de lo que vale; con eso es fácil que
+              te diga que no.</>}{" "}
+        Puedes llegar hasta <b>{max} M€</b>. Mientras no responda, ese dinero queda
+        apalabrado y no puedes gastarlo en otra cosa.
+      </p>
+
+      <div className="sheet__actions">
+        <button className="btn btn--block btn--lg" disabled={!vale || busy}
+          onClick={() => onSend(amount)}>
+          <IconCoin size={18} />Enviar oferta · {amount} M€
+        </button>
+        <button className="btn btn--quiet btn--block" onClick={onClose}>Cancelar</button>
+      </div>
     </Sheet>
   );
 }
