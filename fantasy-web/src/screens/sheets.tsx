@@ -4,7 +4,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import {
-  IconBolt, IconCheck, IconClock, IconClose, IconGavel, IconLock, IconMinus, IconPlus,
+  IconBolt, IconCheck, IconClock, IconClose, IconCopy, IconGavel, IconLock, IconMinus,
+  IconPlus, IconShare, IconWhatsApp,
 } from "../icons";
 import { PfBox, PlayerRow, lockLabel } from "../parts";
 import { Loading, Photo, Section, Sheet, SheetClose, fullName, prettyName, prettyTeam } from "../ui";
@@ -639,5 +640,74 @@ function NextMatch({ n }: { n: any }) {
         {n.home ? "En casa" : "Fuera"} · {fmtMatchDay(n.date, n.start_at)}
       </span>
     </div>
+  );
+}
+
+/* ------------------------------------------------------ invitar a la liga */
+/**
+ * El código suelto no invita a nadie: hay que copiarlo, abrir WhatsApp, explicar dónde
+ * se mete... Aquí se comparte un enlace que ya lleva el código dentro, así que quien lo
+ * reciba solo tiene que tocarlo y ponerse el nombre de mánager.
+ */
+export function InviteSheet({ lg, onClose, onCopied }: {
+  lg: any; onClose: () => void; onCopied: (msg: string) => void;
+}) {
+  const enlace = `${window.location.origin}/?join=${lg.join_code}`;
+  const texto = `Te invito a mi liga de PiFantasy, "${lg.name}".\n\n`
+    + `Entra aquí y ya te sale el código puesto:\n${enlace}\n\n`
+    + `(o métete en ${window.location.host} y pon el código ${lg.join_code})`;
+
+  const copiar = async (qué: string, aviso: string) => {
+    try {
+      await navigator.clipboard.writeText(qué);
+      onCopied(aviso);
+    } catch {
+      onCopied("No se pudo copiar; mantén pulsado el código para copiarlo a mano");
+    }
+  };
+
+  const compartir = async () => {
+    try {
+      await navigator.share({ title: `Liga ${lg.name} · PiFantasy`, text: texto });
+    } catch { /* el usuario ha cancelado: no es un error */ }
+  };
+
+  return (
+    <Sheet onClose={onClose} title="Invitar">
+      <div className="sheet__head" style={{ marginBottom: 14 }}>
+        <div className="sheet__body">
+          <h2>Invita a tu liga</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>{lg.name}</div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      <button className="joincode" onClick={() => copiar(lg.join_code, "Código copiado")}>
+        <span className="joincode__k">Código de la liga · toca para copiar</span>
+        <span className="joincode__v num">{lg.join_code}</span>
+      </button>
+
+      <div className="sheet__actions">
+        {typeof navigator.share === "function" && (
+          <button className="btn btn--block btn--lg" onClick={compartir}>
+            <IconShare size={18} />Compartir por WhatsApp…
+          </button>
+        )}
+        <a className="btn btn--ghost btn--block"
+          href={`https://wa.me/?text=${encodeURIComponent(texto)}`}
+          target="_blank" rel="noreferrer">
+          <IconWhatsApp size={18} />Abrir WhatsApp
+        </a>
+        <button className="btn btn--quiet btn--block"
+          onClick={() => copiar(enlace, "Enlace copiado")}>
+          <IconCopy size={17} />Copiar el enlace
+        </button>
+      </div>
+
+      <p className="hint" style={{ marginTop: 14 }}>
+        Quien toque el enlace entra directo a unirse, con el código ya puesto: solo tiene
+        que elegir su nombre de mánager. El código no caduca y sirve para todos.
+      </p>
+    </Sheet>
   );
 }

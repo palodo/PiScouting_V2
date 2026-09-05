@@ -17,8 +17,8 @@ import MarketTab from "./Market";
 import NotificationBell from "./Notifications";
 import TableTab from "./Table";
 import {
-  BidSheet, ClauseSheet, ManagerJornadaSheet, ManagerSheet, MatchesSheet, PlayerSheet,
-  ScoringSheet,
+  BidSheet, ClauseSheet, InviteSheet, ManagerJornadaSheet, ManagerSheet, MatchesSheet,
+  PlayerSheet, ScoringSheet,
 } from "./sheets";
 
 type Tab = "equipo" | "mercado" | "liga" | "feed";
@@ -54,6 +54,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [scoring, setScoring] = useState(false);
   const [jr, setJr] = useState<any>(null);
   const [matchesFor, setMatchesFor] = useState<any>(null);
+  const [invitando, setInvitando] = useState(false);
   const inited = useRef(false);
 
   async function load() { const d = await api.league(id); setData(d); return d; }
@@ -182,10 +183,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
                 <span className="meta__v num">{r1(data.my_budget)} M€</span>
               </div>
             )}
-            <button className="meta" onClick={() => {
-              navigator.clipboard?.writeText(lg.join_code);
-              setMsg({ text: "Código copiado" });
-            }}>
+            <button className="meta" onClick={() => setInvitando(true)}>
               <span className="meta__k">Código</span>
               <span className="meta__v">{lg.join_code}<IconCopy size={13} /></span>
             </button>
@@ -261,6 +259,11 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           onClose={() => setRivalFor(null)}
           onPlayer={(pid) => { setRivalFor(null); openPlayer(pid); }}
           onClause={(p: any) => { setRivalFor(null); setClauseFor(p); }} />
+      )}
+
+      {invitando && (
+        <InviteSheet lg={lg} onClose={() => setInvitando(false)}
+          onCopied={(text) => setMsg({ text })} />
       )}
 
       {matchesFor && (

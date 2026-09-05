@@ -1118,3 +1118,19 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
   display: flex; align-items: center; gap: 6px;
   color: var(--pos) !important; font-weight: 700; font-size: var(--fs-md) !important;
 }
+
+/* ------------------------------------------------------ invitar a la liga */
+.joincode {
+  display: block; width: 100%; text-align: center; padding: 16px 14px;
+  border-radius: var(--r-lg); border: 1px dashed var(--accent-line);
+  background: var(--accent-soft); color: var(--text);
+}
+.joincode:active { transform: scale(0.99); }
+.joincode__k {
+  display: block; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 4px;
+}
+.joincode__v {
+  display: block; font-family: var(--display); font-size: var(--fs-3xl); font-weight: 800;
+  letter-spacing: 0.22em; text-indent: 0.22em; line-height: 1.15;
+}

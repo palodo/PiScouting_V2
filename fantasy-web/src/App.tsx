@@ -24,6 +24,9 @@ export default function App() {
   const [resetToken, setResetToken] = useState(
     () => new URLSearchParams(window.location.search).get("reset"));
   const [bienvenida, setBienvenida] = useState(false);
+  // enlace de invitación: /?join=ABC123 lleva directo a unirse, con el código puesto
+  const [invitacion, setInvitacion] = useState(
+    () => new URLSearchParams(window.location.search).get("join"));
 
   // el service worker se registra siempre: sin él no hay avisos, y no estorba
   useEffect(() => { registrarSW(); }, []);
@@ -54,5 +57,9 @@ export default function App() {
   if (leagueId) {
     return <>{bienve}<League id={leagueId} me={me} onBack={() => setLeagueId(null)} /></>;
   }
-  return <>{bienve}<Home me={me} onOpen={setLeagueId} onLogout={logout} /></>;
+  return <>{bienve}<Home me={me} onOpen={setLeagueId} onLogout={logout}
+    invitacion={invitacion} onInvitacionUsada={() => {
+      setInvitacion(null);
+      history.replaceState(null, "", "/");
+    }} /></>;
 }

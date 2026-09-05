@@ -14,11 +14,12 @@ const monogram = (s: string) =>
   s.trim().split(/\s+/).filter((w) => w.length > 2).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
   || s.trim().slice(0, 2).toUpperCase();
 
-export default function Home({ me, onOpen, onLogout }: {
+export default function Home({ me, onOpen, onLogout, invitacion, onInvitacionUsada }: {
   me: Me; onOpen: (id: number) => void; onLogout: () => void;
+  invitacion?: string | null; onInvitacionUsada?: () => void;
 }) {
   const [leagues, setLeagues] = useState<any[] | null>(null);
-  const [view, setView] = useState<"list" | "create" | "join">("list");
+  const [view, setView] = useState<"list" | "create" | "join">(invitacion ? "join" : "list");
   const [theme, setTheme] = useThemeMode();
 
   useEffect(() => { api.leagues().then(setLeagues).catch(() => setLeagues([])); }, [view]);
@@ -102,7 +103,7 @@ export default function Home({ me, onOpen, onLogout }: {
         )}
 
         {view === "create" && <CreateLeague onDone={onOpen} />}
-        {view === "join" && <JoinLeague onDone={onOpen} />}
+        {view === "join" && <JoinLeague onDone={onOpen} inicial={invitacion} onUsada={onInvitacionUsada} />}
       </main>
     </div>
   );
@@ -308,8 +309,10 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
 }
 
 /* ------------------------------------------------------------- unirse */
-function JoinLeague({ onDone }: { onDone: (id: number) => void }) {
-  const [code, setCode] = useState("");
+function JoinLeague({ onDone, inicial, onUsada }: {
+  onDone: (id: number) => void; inicial?: string | null; onUsada?: () => void;
+}) {
+  const [code, setCode] = useState(inicial ?? "");
   const [manager, setManager] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -317,7 +320,11 @@ function JoinLeague({ onDone }: { onDone: (id: number) => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null); setBusy(true);
-    try { onDone((await api.join(code.trim().toUpperCase(), manager)).id); }
+    try {
+      const lg = await api.join(code.trim().toUpperCase(), manager);
+      onUsada?.();
+      onDone(lg.id);
+    }
     catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   }
 
