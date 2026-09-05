@@ -42,6 +42,20 @@ def verify_google_token(id_token: str) -> Optional[dict]:
     except Exception:
         return None
 
+RESET_TTL_MIN = 30  # lo que dura un enlace de cambio de contraseña
+
+
+def new_reset_token() -> tuple[str, str]:
+    """Devuelve (token para el enlace, hash para guardar). El token no se guarda nunca."""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    return token, hash_reset_token(token)
+
+
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 _PBKDF2_ROUNDS = 200_000
 
 

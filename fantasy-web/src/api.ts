@@ -38,6 +38,9 @@ export const api = {
   me: () => get("/auth/me"),
   authConfig: () => get<{ google_client_id: string | null }>("/auth/config"),
   google: (id_token: string) => post("/auth/google", { id_token }),
+  forgot: (email: string) => post<{ sent: boolean; mail_enabled: boolean }>("/auth/forgot", { email }),
+  resetPassword: (token: string, password: string) => post("/auth/reset", { token, password }),
+  adminResetLink: (email: string) => post<{ link: string; minutes: number }>("/admin/reset-link", { email }),
 
   competitions: () => get<{ competitions: { competition: string; grupos: string[] }[] }>("/fantasy/competitions"),
   leagues: () => get<any[]>("/fantasy/leagues"),

@@ -3,6 +3,7 @@ import { api, setToken } from "../api";
 import type { Me } from "../App";
 import { IconAlert } from "../icons";
 import GoogleButton from "../GoogleButton";
+import { Forgot } from "./Password";
 import { Brand, Segmented } from "../ui";
 
 export default function Login({ onAuth }: { onAuth: (me: Me) => void }) {
@@ -12,6 +13,7 @@ export default function Login({ onAuth }: { onAuth: (me: Me) => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [googleId, setGoogleId] = useState<string | null>(null);
+  const [olvidada, setOlvidada] = useState(false);
 
   // si el backend no tiene Google configurado, ni se carga su script
   useEffect(() => {
@@ -46,6 +48,8 @@ export default function Login({ onAuth }: { onAuth: (me: Me) => void }) {
     }
   }
 
+  if (olvidada) return <Forgot onBack={() => setOlvidada(false)} />;
+
   return (
     <div className="centered">
       <form onSubmit={submit} style={{ width: "100%", maxWidth: 400 }}>
@@ -74,6 +78,11 @@ export default function Login({ onAuth }: { onAuth: (me: Me) => void }) {
             placeholder="••••••••"
             onChange={(e) => setPass(e.target.value)} />
         </label>
+
+        {mode === "login" && (
+          <button type="button" className="linkbtn" style={{ marginTop: -6, marginBottom: 6 }}
+            onClick={() => setOlvidada(true)}>¿Has olvidado tu contraseña?</button>
+        )}
 
         {err && <div className="formerr"><IconAlert size={17} />{err}</div>}
 

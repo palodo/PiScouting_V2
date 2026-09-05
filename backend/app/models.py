@@ -261,6 +261,22 @@ class FantasyJornadaScore(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PasswordReset(SQLModel, table=True):
+    """Petición de cambio de contraseña.
+
+    Del token solo se guarda su hash: si alguien leyera la base de datos no podría
+    reutilizarlo. Es de un solo uso (`used_at`) y caduca (`expires_at`).
+    """
+    __tablename__ = "password_resets"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    token_hash: str = Field(index=True, unique=True)
+    expires_at: datetime = Field(index=True)
+    used_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class FantasyNotification(SQLModel, table=True):
     """Aviso dirigido a UN mánager. El feed cuenta lo que pasa en la liga; esto cuenta
     lo que te pasa a ti: te han clausulado, has ganado una puja, tu jornada..."""

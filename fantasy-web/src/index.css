@@ -1073,3 +1073,14 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 /* Google pinta su propio botón dentro; solo lo centramos y le damos el ancho */
 .gbtn { display: flex; justify-content: center; width: 100%; min-height: 44px; }
 .gbtn > div { width: 100% !important; }
+
+/* enlace de recuperación que genera el administrador */
+.resetlink {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.resetlink code {
+  flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

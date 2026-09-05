@@ -89,6 +89,11 @@ export default function Home({ me, onOpen, onLogout }: {
                 Sesión iniciada como <b>{me.email}</b>{me.is_admin ? " · administrador" : ""}.
               </p>
             </div>
+
+            {me.is_admin && <>
+              <Section>Administración</Section>
+              <ResetLinkTool />
+            </>}
           </>
         )}
 
@@ -334,6 +339,56 @@ function JoinLeague({ onDone }: { onDone: (id: number) => void }) {
       <button className="btn btn--block btn--lg" style={{ marginTop: 18 }} disabled={busy || code.length < 4}>
         {busy ? <span className="spinner" /> : "Unirme"}
       </button>
+    </form>
+  );
+}
+
+
+/* ------------------------------------------------ enlace de recuperación */
+/**
+ * Para cuando alguien pierde la contraseña y el correo automático no está configurado
+ * (o no le llega): el administrador genera el enlace aquí y se lo pasa por donde sea.
+ */
+function ResetLinkTool() {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [link, setLink] = useState<string | null>(null);
+  const [mins, setMins] = useState(30);
+  const [err, setErr] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
+
+  async function generar(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null); setLink(null); setBusy(true);
+    try {
+      const r = await api.adminResetLink(email.trim());
+      setLink(r.link); setMins(r.minutes); setCopiado(false);
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <form className="card card--pad" onSubmit={generar}>
+      <span className="field__label">Recuperar la contraseña de alguien</span>
+      <p className="hint" style={{ margin: "0 0 10px" }}>
+        Genera un enlace de un solo uso y pásaselo. Caduca en {mins} minutos.
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input className="input" type="email" value={email} required placeholder="su@email.com"
+          inputMode="email" onChange={(e) => setEmail(e.target.value)} />
+        <button className="btn" disabled={busy || !email.trim()}>
+          {busy ? <span className="spinner" /> : "Generar"}
+        </button>
+      </div>
+      {err && <div className="formerr" style={{ marginTop: 12 }}><IconAlert size={17} />{err}</div>}
+      {link && (
+        <div className="resetlink">
+          <code>{link}</code>
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => {
+            navigator.clipboard?.writeText(link);
+            setCopiado(true);
+          }}>{copiado ? "Copiado" : "Copiar"}</button>
+        </div>
+      )}
     </form>
   );
 }

@@ -14,8 +14,8 @@ from sqlmodel import Session, select, func
 
 from .db import engine, init_db, get_session
 from .config import DEFAULT_SEASON
-from .models import Team, Player, Match, PlayerMatchStat, User, FantasyLeague
-from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod
+from .models import Team, Player, Match, PlayerMatchStat, User, FantasyLeague, PasswordReset
+from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod, mailer
 from .ingest.crawl import ingest_team
 
 app = FastAPI(title="PiScouting API", version="0.1.0")
@@ -320,6 +320,81 @@ def login(body: LoginBody, session: Session = Depends(get_session)):
 
 class GoogleBody(BaseModel):
     id_token: str
+
+
+class ForgotBody(BaseModel):
+    email: str
+
+
+class ResetBody(BaseModel):
+    token: str
+    password: str
+
+
+def _make_reset(session: Session, user: User) -> str:
+    """Crea un enlace de un solo uso e invalida los anteriores de ese usuario."""
+    from datetime import datetime as _dt, timedelta as _td
+    for old in session.exec(select(PasswordReset).where(
+            PasswordReset.user_id == user.id, PasswordReset.used_at == None)).all():  # noqa: E711
+        old.used_at = _dt.utcnow()
+        session.add(old)
+    token, token_hash = auth.new_reset_token()
+    session.add(PasswordReset(user_id=user.id, token_hash=token_hash,
+                              expires_at=_dt.utcnow() + _td(minutes=auth.RESET_TTL_MIN)))
+    session.commit()
+    return f"{mailer.APP_URL}/?reset={token}"
+
+
+@app.post("/api/auth/forgot")
+def auth_forgot(body: ForgotBody, session: Session = Depends(get_session)):
+    """Pide un enlace para cambiar la contraseña.
+
+    Responde siempre lo mismo exista o no la cuenta: si dijera "ese email no está
+    registrado" cualquiera podría averiguar quién tiene cuenta probando direcciones.
+    """
+    email = (body.email or "").strip().lower()
+    user = session.exec(select(User).where(User.email == email)).first()
+    enviado = False
+    if user:
+        link = _make_reset(session, user)
+        enviado = mailer.send_password_reset(user.email, link, auth.RESET_TTL_MIN)
+    return {"ok": True, "sent": enviado, "mail_enabled": mailer.enabled()}
+
+
+@app.post("/api/auth/reset")
+def auth_reset(body: ResetBody, session: Session = Depends(get_session)):
+    from datetime import datetime as _dt
+    if len(body.password or "") < 6:
+        raise HTTPException(400, "La contraseña debe tener al menos 6 caracteres")
+    pr = session.exec(select(PasswordReset).where(
+        PasswordReset.token_hash == auth.hash_reset_token(body.token))).first()
+    if not pr or pr.used_at or pr.expires_at < _dt.utcnow():
+        raise HTTPException(400, "Ese enlace ya no vale: pide uno nuevo")
+    user = session.get(User, pr.user_id)
+    if not user:
+        raise HTTPException(400, "Ese enlace ya no vale: pide uno nuevo")
+    user.password_hash = auth.hash_password(body.password)
+    pr.used_at = _dt.utcnow()
+    session.add_all([user, pr])
+    session.commit()
+    return {"ok": True, "token": auth.create_token(user.id)}
+
+
+@app.post("/api/admin/reset-link")
+def admin_reset_link(body: ForgotBody, user: User = Depends(auth.get_current_user),
+                     session: Session = Depends(get_session)):
+    """Genera el enlace a mano, para pasárselo a alguien por WhatsApp.
+
+    Es la salida mientras no haya correo configurado, y el plan B si un correo no llega.
+    """
+    if not auth.is_admin(user):
+        raise HTTPException(403, "Solo un administrador puede generar enlaces")
+    email = (body.email or "").strip().lower()
+    target = session.exec(select(User).where(User.email == email)).first()
+    if not target:
+        raise HTTPException(404, "No hay ninguna cuenta con ese email")
+    return {"ok": True, "email": target.email, "link": _make_reset(session, target),
+            "minutes": auth.RESET_TTL_MIN}
 
 
 @app.get("/api/auth/config")
