@@ -186,8 +186,9 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
             <p className="hint" style={{ margin: 0 }}>
               No se vende al instante. Durante <b>3 días</b> la liga te mandará{" "}
               <b>una oferta al día</b>, entre un 5 % menos y un 10 % más de su valor
-              ({d.price} M€). Aceptas la que quieras, o ninguna: mientras tanto sigue
-              siendo tuyo y puede jugar.
+              ({d.price} M€). <b>Cada una solo vale 24 horas</b>: cuando llegue la
+              siguiente, la anterior se pierde, así que no puedes esperar a verlas todas
+              y quedarte la mejor. Mientras tanto sigue siendo tuyo y puede jugar.
             </p>
             <button className="btn btn--danger btn--block" disabled={busy}
               onClick={() => onSell(d.player_id)}>

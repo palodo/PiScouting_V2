@@ -1317,7 +1317,9 @@ def put_on_sale(session: Session, league: FantasyLeague, member: FantasyMember,
     """Pone a un jugador en el escaparate.
 
     No se vende al momento a propósito: durante tres días la liga manda una oferta al
-    día, entre un 5% menos y un 10% mas de su valor. Aceptas la que quieras, o ninguna.
+    día, entre un 5% menos y un 10% más de su valor. Cada una vale solo 24 horas: al
+    llegar la siguiente, la anterior se pierde. Así hay que decidir con lo que hay
+    encima de la mesa, en vez de esperar a verlas todas y quedarse la mejor.
     """
     sync_market(session, league)
     _require(session, league, "mercado", what="podrás poner en venta")
@@ -1380,7 +1382,7 @@ def sync_offers(session: Session, league: FantasyLeague) -> None:
         for pick in picks_of(session, m.id):
             if not pick.sale_started_at:
                 continue
-            fin = pick.sale_started_at + timedelta(days=SALE_DAYS)
+            fin = pick.sale_started_at + timedelta(days=SALE_DAYS)   # fin del escaparate
             if ahora >= fin and pick.sale_offers_made >= SALE_DAYS:
                 pick.sale_started_at = None      # se acabó el escaparate
                 pick.sale_offers_made = 0
@@ -1394,18 +1396,22 @@ def sync_offers(session: Session, league: FantasyLeague) -> None:
             valor = precios.get(pick.player_id, pick.buy_price)
             factor = 1 + random.uniform(SALE_MIN, SALE_MAX)
             importe = max(PRICE_MIN, round(valor * factor, 1))
+            # Cada oferta vale SOLO su día: caduca justo cuando entra la siguiente. Si
+            # se acumularan las tres no habría decisión que tomar, bastaba con esperar
+            # a verlas todas y quedarse la mejor.
+            caduca = pick.sale_started_at + timedelta(days=pick.sale_offers_made + 1)
             session.add(FantasyOffer(
                 league_id=league.id, player_id=pick.player_id, to_member_id=m.id,
-                from_member_id=None, amount=importe, expires_at=fin))
+                from_member_id=None, amount=importe, expires_at=caduca))
             pick.sale_offers_made += 1
             session.add(pick)
             pl = session.get(Player, pick.player_id)
             quedan = SALE_DAYS - pick.sale_offers_made
             _notify(session, league, m, "offer",
                     f"Oferta por {_nice(pl.name if pl else None)}",
-                    f"Te ofrecen {importe} M€"
-                    + (f" · te quedan {quedan} ofertas mas" if quedan else
-                       " · es la ultima"))
+                    f"Te ofrecen {importe} M€ · solo vale 24 h"
+                    + (f", luego llegará otra ({quedan} más)" if quedan else
+                       " y es la última"))
             cambios = True
     if cambios:
         session.commit()

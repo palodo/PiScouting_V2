@@ -11,10 +11,13 @@ import { Empty, Section, useCountdown } from "../ui";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-function Caduca({ iso }: { iso?: string | null }) {
+function Caduca({ iso, liga }: { iso?: string | null; liga?: boolean }) {
   const queda = useCountdown(iso);
   if (!iso || !queda) return null;
-  return <span className="prow__owner">caduca en {queda}</span>;
+  // en las de la liga la cuenta atrás es la gracia del asunto: al agotarse llega otra
+  return <span className={liga ? "prow__urge" : "prow__owner"}>
+    {liga ? "vale " : "caduca en "}{queda}
+  </span>;
 }
 
 export default function OffersTab({ data, busy, onOpen, onAccept, onReject }: {
@@ -39,6 +42,12 @@ export default function OffersTab({ data, busy, onOpen, onAccept, onReject }: {
     <>
       {recibidas.length > 0 && <>
         <Section right={String(recibidas.length)}>Te ofrecen</Section>
+        {recibidas.some((o) => !o.from) && (
+          <p className="hint" style={{ margin: "-4px 2px 10px" }}>
+            Las ofertas de la liga <b>solo valen 24 horas</b>. Cuando entre la del día
+            siguiente, esta desaparece: o la coges ahora, o te la juegas.
+          </p>
+        )}
         {recibidas.map((o) => {
           const dif = r1(o.amount - o.price);
           return (
@@ -49,7 +58,7 @@ export default function OffersTab({ data, busy, onOpen, onAccept, onReject }: {
                   <span className={"prow__owner" + (o.from ? "" : " prow__free")}>
                     {o.from ?? "La liga"}
                   </span>
-                  <Caduca iso={o.expires_at} />
+                  <Caduca iso={o.expires_at} liga={!o.from} />
                 </>} />
               <div className="offer__deal">
                 <div>

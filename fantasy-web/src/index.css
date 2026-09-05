@@ -1155,3 +1155,4 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .offer__btns { margin-left: auto; display: flex; gap: 7px; flex-shrink: 0; }
 .prow__rank { color: var(--text-3); font-weight: 800; }
 .prow__free { color: var(--pos); font-weight: 700; }
+.prow__urge { color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums; }
