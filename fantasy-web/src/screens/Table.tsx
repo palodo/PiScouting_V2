@@ -8,12 +8,9 @@ import { Empty, Photo, Section, Segmented, prettyName, prettyTeam } from "../ui"
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer,
-  bets, betsUI }: any) {
+export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer }: any) {
   const rows: any[] = jr?.rows ?? [];
-  const [view, setView] = useState<"jornada" | "general" | "apuestas">(
-    rows.length ? "jornada" : "general");
-  const enJuego = (bets?.my_bets ?? []).filter((b: any) => b.status === "pending").length;
+  const [view, setView] = useState<"jornada" | "general">(rows.length ? "jornada" : "general");
 
   return (
     <>
@@ -21,15 +18,12 @@ export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer,
         <Segmented value={view} onChange={setView} options={[
           { v: "jornada", label: "Jornada" },
           { v: "general", label: "General" },
-          { v: "apuestas", label: enJuego ? `Apuestas · ${enJuego}` : "Apuestas" },
         ]} />
       </div>
       {view === "jornada"
         ? <JornadaView jr={jr} myId={data.my_member_id} onJornada={onJornada}
             onManager={onManager} onPlayer={onPlayer} />
-        : view === "general"
-          ? <General data={data} lg={lg} onManager={onManager} />
-          : betsUI}
+        : <General data={data} lg={lg} onManager={onManager} />}
     </>
   );
 }

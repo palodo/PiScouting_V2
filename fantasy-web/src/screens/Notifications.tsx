@@ -1,14 +1,17 @@
 /* ============================================================================
-   Campana: lo que te ha pasado a ti (no lo que ha pasado en la liga, que eso es
-   el feed). Se refresca sola y se marca como leído al abrirla.
+   Campana: las novedades. Dos solapas, porque son dos cosas distintas: lo que te
+   ha pasado a ti (avisos, se marcan leídos al abrir) y lo que se mueve en la liga
+   (el feed, que antes vivía en una pestaña propia). Se refresca sola.
    ========================================================================== */
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import {
-  IconBell, IconBolt, IconCalendar, IconGavel, IconInfo, IconMarket, IconPen, IconUserPlus,
+  IconActivity, IconBell, IconBolt, IconCalendar, IconCoin, IconGavel, IconInfo, IconMarket,
+  IconPen, IconUserPlus,
   type IconProps,
 } from "../icons";
-import { Empty, Sheet, SheetClose, relTime } from "../ui";
+import { Empty, Segmented, Sheet, SheetClose, relTime } from "../ui";
+import { FeedRow } from "../parts";
 import type { ReactNode } from "react";
 
 const ICON: Record<string, (p: IconProps) => ReactNode> = {
@@ -18,12 +21,18 @@ const ICON: Record<string, (p: IconProps) => ReactNode> = {
   clause: IconBolt,
   jornada: IconCalendar,
   join: IconUserPlus,
+  bet: IconCoin,
   info: IconInfo,
 };
 
-export default function NotificationBell({ label }: { label?: string }) {
+export default function NotificationBell({ label, feed }: {
+  label?: string;
+  /** Actividad de la liga. Solo llega desde dentro de una liga; en "mis ligas" no hay. */
+  feed?: any[];
+}) {
   const [data, setData] = useState<{ items: any[]; unread: number } | null>(null);
   const [open, setOpen] = useState(false);
+  const [vista, setVista] = useState<"tuyo" | "liga">("tuyo");
 
   const refresh = useCallback(() => {
     api.notifications().then(setData).catch(() => {});
@@ -58,18 +67,36 @@ export default function NotificationBell({ label }: { label?: string }) {
       </button>
 
       {open && (
-        <Sheet onClose={() => setOpen(false)} title="Notificaciones">
+        <Sheet onClose={() => setOpen(false)} title="Novedades">
           <div className="sheet__head" style={{ marginBottom: 12 }}>
             <div className="sheet__body">
-              <h2>Notificaciones</h2>
+              <h2>Novedades</h2>
               <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
-                {items.length === 0 ? "Nada por ahora" : "Lo que te ha pasado en tus ligas"}
+                {vista === "liga" ? "Todo lo que se mueve en la liga"
+                  : items.length === 0 ? "Nada por ahora" : "Lo que te ha pasado a ti"}
               </div>
             </div>
             <SheetClose onClose={() => setOpen(false)} />
           </div>
 
-          {items.length === 0
+          {feed && (
+            <div style={{ marginBottom: 12 }}>
+              <Segmented value={vista} onChange={setVista} options={[
+                { v: "tuyo", label: unread ? `Para ti · ${unread}` : "Para ti" },
+                { v: "liga", label: "La liga" },
+              ]} />
+            </div>
+          )}
+
+          {vista === "liga" && (
+            (feed ?? []).length === 0
+              ? <Empty icon={<IconActivity size={22} />} title="Sin movimientos todavía">
+                  Aquí aparecen los fichajes, los clausulazos y las jornadas puntuadas.
+                </Empty>
+              : <div className="tl">{feed!.map((e: any) => <FeedRow key={e.id} e={e} />)}</div>
+          )}
+
+          {vista === "tuyo" && (items.length === 0
             ? <Empty icon={<IconBell size={22} />} title="Sin novedades">
                 Aquí te avisaremos de los clausulazos que sufras, de las pujas que ganes
                 o pierdas y de lo que hagas cada jornada.
@@ -86,7 +113,7 @@ export default function NotificationBell({ label }: { label?: string }) {
                   </div>
                 </div>
               );
-            })}
+            }))}
         </Sheet>
       )}
     </>

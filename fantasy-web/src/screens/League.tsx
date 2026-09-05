@@ -1,15 +1,15 @@
 /* ============================================================================
-   Pantalla de una liga: equipo, mercado (subastas + cláusulas), clasificación
-   por jornada y actividad.
+   Pantalla de una liga: equipo, mercado (subastas + cláusulas), jugadores,
+   clasificación por jornada y apuestas.
    ========================================================================== */
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Me } from "../App";
 import {
-  IconActivity, IconAlert, IconArrowLeft, IconCheck, IconCopy, IconLock,
+  IconAlert, IconArrowLeft, IconCheck, IconCoin, IconCopy, IconLock,
   IconMarket, IconPlay, IconSearch, IconSquad, IconStar, IconStarOn, IconTrophy,
 } from "../icons";
-import { ClauseMeta, Delta, FeedRow, PlayerRow, fp, phaseInfo } from "../parts";
+import { ClauseMeta, Delta, PlayerRow, fp, phaseInfo } from "../parts";
 import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
@@ -24,13 +24,15 @@ import {
   OfferSheet, PlayerSheet, ScoringSheet,
 } from "./sheets";
 
-type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "feed";
+type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "apuestas";
+// La actividad se ha mudado a la campana, junto a los avisos propios: es algo que se lee
+// de vez en cuando, y el sitio lo aprovechan mejor las apuestas, que hay que ir a hacerlas.
 const TABS: [Tab, (p: any) => any, string][] = [
   ["equipo", IconSquad, "Equipo"],
   ["mercado", IconMarket, "Mercado"],
   ["jugadores", IconSearch, "Jugadores"],
   ["liga", IconTrophy, "Liga"],
-  ["feed", IconActivity, "Actividad"],
+  ["apuestas", IconCoin, "Apuestas"],
 ];
 
 /** Posiciones de los cinco titulares sobre la media pista. */
@@ -89,7 +91,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
     loadOffers().catch(() => setOffers({ received: [], sent: [] }));
     if (tab === "mercado") { loadMarket(); loadClauses().catch(() => setClauses({ players: [] })); }
     if (tab === "jugadores" && !players) loadPlayers().catch(() => setPlayers({ players: [] }));
-    if (tab === "liga") loadBets().catch(() => setBets({ options: [], my_bets: [] }));
+    if (tab === "apuestas") loadBets().catch(() => setBets({ options: [], my_bets: [] }));
   }, [tab]);
   useEffect(() => {
     if (tab !== "mercado" || !data?.league?.market_open) return;
@@ -164,7 +166,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           <div className="appbar__nav">
             <button className="linkbtn" onClick={onBack}><IconArrowLeft size={18} />Mis ligas</button>
             <span style={{ flex: 1 }} />
-            <NotificationBell />
+            <NotificationBell feed={data.feed} />
             {admin && (
               <button className="btn btn--sm btn--ghost" disabled={busy || done}
                 onClick={() => act(async () => {
@@ -222,7 +224,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
             offersUI={<OffersTab data={offers} busy={busy}
               onOpen={(pid: number) => openPlayer(pid)}
               onAccept={(o: any) => act(() => api.resolveOffer(id, o.id, true),
-                o.from ? `Traspaso cerrado: ${o.amount} M\u20ac` : `Vendido por ${o.amount} M\u20ac`)}
+                o.from ? `Traspaso cerrado: ${o.amount} M€` : `Vendido por ${o.amount} M€`)}
               onReject={(o: any) => act(() => api.resolveOffer(id, o.id, false), "Oferta rechazada")} />}
             view={marketView} onView={setMarketView}
             onOpenPlayer={openPlayer} onBid={setBidFor} onClause={setClauseFor}
@@ -235,23 +237,15 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         )}
 
         {tab === "liga" && (
-          <TableTab data={data} lg={lg} jr={jr} bets={bets}
-            betsUI={<BetsTab data={bets} busy={busy}
-              onBet={(ids: number[], stake: number) =>
-                act(() => api.placeBet(id, ids, stake), `Apuesta de ${stake} M\u20ac hecha`)} />}
+          <TableTab data={data} lg={lg} jr={jr}
             onJornada={(j: number) => api.jornada(id, j).then(setJr).catch(() => {})}
             onManager={openManager} onPlayer={openPlayer} />
         )}
 
-        {tab === "feed" && (
-          <>
-            <Section>Actividad</Section>
-            {(data.feed ?? []).length === 0
-              ? <Empty icon={<IconActivity size={22} />} title="Sin movimientos todavía">
-                  Aquí aparecerán los fichajes, los clausulazos y las jornadas puntuadas.
-                </Empty>
-              : <div className="tl">{data.feed.map((e: any) => <FeedRow key={e.id} e={e} />)}</div>}
-          </>
+        {tab === "apuestas" && (
+          <BetsTab data={bets} busy={busy}
+            onBet={(ids: number[], stake: number) =>
+              act(() => api.placeBet(id, ids, stake), `Apuesta de ${stake} M€ hecha`)} />
         )}
       </main>
 
@@ -345,6 +339,9 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
               {label}
               {k === "mercado" && tab !== "mercado"
                 && ((offers?.received?.length ?? 0) > 0 || lg.market_open)
+                && <span className="tab__badge" />}
+              {k === "apuestas" && tab !== "apuestas"
+                && (bets?.my_bets ?? []).some((b: any) => b.status === "pending")
                 && <span className="tab__badge" />}
             </button>
           ))}
