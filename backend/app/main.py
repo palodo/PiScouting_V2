@@ -591,6 +591,24 @@ def fantasy_market(league_id: int, user: User = Depends(auth.get_current_user),
     return fantasy_mod.market(session, lg, member)
 
 
+@app.get("/api/fantasy/leagues/{league_id}/matches")
+def fantasy_matches(league_id: int, jornada: Optional[int] = None,
+                    user: User = Depends(auth.get_current_user),
+                    session: Session = Depends(get_session)):
+    """Partidos de una jornada con su estado (jugado, en juego, aplazado, adelantado).
+    Sin `jornada`, la que está en curso o a punto de jugarse."""
+    lg = _get_league(session, league_id)
+    state = fantasy_mod.league_state(session, lg)
+    j = jornada if jornada is not None else state["jornada"]
+    return {
+        "jornada": j,
+        "phase": state["phase"],
+        "kickoff_at": fantasy_mod._iso(state["kickoff_at"]),
+        "ends_at": fantasy_mod._iso(state["ends_at"]),
+        "matches": fantasy_mod.jornada_matches(session, lg, j),
+    }
+
+
 @app.get("/api/fantasy/leagues/{league_id}/clauses")
 def fantasy_clauses(league_id: int, user: User = Depends(auth.get_current_user),
                     session: Session = Depends(get_session)):

@@ -3,7 +3,9 @@
    ========================================================================== */
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { IconBolt, IconCheck, IconClose, IconGavel, IconLock, IconMinus, IconPlus } from "../icons";
+import {
+  IconBolt, IconCheck, IconClock, IconClose, IconGavel, IconLock, IconMinus, IconPlus,
+} from "../icons";
 import { PfBox, PlayerRow, lockLabel } from "../parts";
 import { Loading, Photo, Section, Sheet, SheetClose, fullName, prettyName, prettyTeam } from "../ui";
 
@@ -64,6 +66,9 @@ export function PlayerSheet({ leagueId, playerId, jornada, league, myMemberId, f
 
       {/* Si se abre desde una jornada, lo primero es ese partido: es lo que se venía a ver */}
       {d.game && <GameLine g={d.game} />}
+
+      {/* Contra quién juega: lo que decides mirar antes de alinearlo */}
+      {!d.game && d.next_match && <NextMatch n={d.next_match} />}
 
       {/* Lo que de verdad suma en la liga */}
       <div className="fp">
@@ -520,6 +525,109 @@ function JornadaLine({ p, bench, onOpen }: { p: any; bench?: boolean; onOpen?: (
         </div>
       </div>
       {p.played ? <PfBox value={p.points} muted={bench} /> : <span className="dnp">No jugó</span>}
+    </div>
+  );
+}
+
+/* ------------------------------------------- partidos de una jornada */
+/**
+ * Qué se juega (y qué falta) en una jornada. Es la respuesta visual a "¿por qué no se
+ * ha puntuado todavía?": mientras quede un partido sin resultado la jornada sigue
+ * abierta, y aquí se ve cuál es y cuándo se juega.
+ */
+export function MatchesSheet({ data, onClose }: { data: any; onClose: () => void }) {
+  if (!data) return <Sheet onClose={onClose}><Loading label="Cargando partidos" /></Sheet>;
+  const ms: any[] = data.matches ?? [];
+  const faltan = ms.filter((m: any) => m.status !== "jugado");
+  const movidos = ms.filter((m: any) => m.moved);
+
+  return (
+    <Sheet onClose={onClose} title={`Jornada ${data.jornada}`}>
+      <div className="sheet__head" style={{ marginBottom: 12 }}>
+        <div className="sheet__body">
+          <h2>Jornada {data.jornada}</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            {faltan.length === 0
+              ? `${ms.length} partidos, todos jugados`
+              : `Falta${faltan.length === 1 ? "" : "n"} ${faltan.length} de ${ms.length} por jugarse`}
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      {faltan.length > 0 && (
+        <div className="notice notice--info" style={{ marginBottom: 12 }}>
+          <span className="notice__ico"><IconClock size={18} /></span>
+          <div>
+            <b>La jornada no se puntúa hasta que acaben todos</b>
+            <span>
+              Así un aplazamiento no le cuela un cero a nadie: los puntos se reparten
+              cuando entra el último resultado.
+              {movidos.length > 0 && " Hay partidos con la fecha cambiada, marcados abajo."}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {ms.map((m: any) => <MatchRow key={m.match_id} m={m} />)}
+      {ms.length === 0 && <p className="hint">Esta jornada todavía no tiene calendario.</p>}
+    </Sheet>
+  );
+}
+
+const ESTADO: Record<string, [string, string]> = {
+  en_juego: ["En juego", "mstate--live"],
+  pendiente: ["Por jugarse", "mstate--wait"],
+  sin_resultado: ["Sin resultado", "mstate--warn"],
+};
+
+function MatchRow({ m }: { m: any }) {
+  const jugado = m.home_score != null && m.away_score != null;
+  const ganaLocal = jugado && m.home_score > m.away_score;
+  const [txt, cls] = ESTADO[m.status] ?? ["", ""];
+  return (
+    <div className={"match" + (jugado ? "" : " match--open")}>
+      <div className="match__when">
+        <span>{fmtMatchDay(m.date, m.start_at)}</span>
+        {m.moved === "aplazado" && <span className="mstate mstate--moved">Aplazado</span>}
+        {m.moved === "adelantado" && <span className="mstate mstate--early">Adelantado</span>}
+        {!jugado && txt && <span className={"mstate " + cls}>{txt}</span>}
+      </div>
+      <div className={"match__row" + (ganaLocal ? " is-win" : "")}>
+        <span>{prettyTeam(m.home)}</span>
+        <b className="num">{m.home_score ?? "–"}</b>
+      </div>
+      <div className={"match__row" + (jugado && !ganaLocal ? " is-win" : "")}>
+        <span>{prettyTeam(m.away)}</span>
+        <b className="num">{m.away_score ?? "–"}</b>
+      </div>
+    </div>
+  );
+}
+
+/** "sáb 3 ene · 19:00" — con la hora solo si la FEB la ha publicado. */
+export function fmtMatchDay(iso?: string | null, startAt?: string | null) {
+  if (!iso && !startAt) return "Fecha por confirmar";
+  const d = new Date(startAt ?? `${iso}T12:00:00Z`);
+  const dia = d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
+  if (!startAt) return dia;
+  const h = d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  return `${dia} · ${h}`;
+}
+
+
+/** Próximo partido del jugador: rival, dónde y cuándo. */
+function NextMatch({ n }: { n: any }) {
+  return (
+    <div className="nextmatch">
+      <span className="nextmatch__k">Jornada {n.jornada}</span>
+      <div className="nextmatch__v">
+        <span className="nextmatch__vs">{n.home ? "vs" : "@"}</span>
+        {prettyTeam(n.rival)}
+      </div>
+      <span className="nextmatch__when">
+        {n.home ? "En casa" : "Fuera"} · {fmtMatchDay(n.date, n.start_at)}
+      </span>
     </div>
   );
 }

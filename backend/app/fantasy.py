@@ -1121,6 +1121,8 @@ def player_detail(session: Session, league: FantasyLeague, player_id: int,
         # puntos fantasy (lo que suma en la liga) y el bonus con el que se calculan
         "fp_avg": info.get("fp_avg", 0), "fp_form": info.get("fp_form", 0),
         "win_bonus": league.win_bonus,
+        # contra quién juega la próxima: lo primero que se mira antes de alinear
+        "next_match": next_match_for_team(session, league, info.get("team_id")),
         "avg": {
             "min": round(agg["seconds"] / n / 60, 1), "pts": round(agg["pts"] / n, 1),
             "reb": round(agg["treb"] / n, 1), "oreb": round(agg["oreb"] / n, 1),
@@ -1251,6 +1253,94 @@ def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> li
             visit = session.get(Team, m.away_team_id) if m.away_team_id else None
             faltan.append(f"{local.name if local else '?'} - {visit.name if visit else '?'}")
     return faltan
+
+
+def jornada_matches(session: Session, league: FantasyLeague, jornada: int) -> list[dict]:
+    """Los partidos de una jornada con su estado, para que se VEA por qué sigue abierta.
+
+    La FEB no dice si un partido se ha movido, así que se deduce comparando con el día
+    principal de la jornada (el que juega la mayoría): dos días o más antes es un
+    adelanto, dos o más después un aplazamiento.
+    """
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    ms = session.exec(q).all()
+
+    dias: dict[date, int] = {}
+    for m in ms:
+        if m.match_date:
+            dias[m.match_date] = dias.get(m.match_date, 0) + 1
+    principal = max(dias, key=lambda d: (dias[d], -d.toordinal())) if dias else None
+
+    now = utcnow()
+    fin_partido = timedelta(hours=MATCH_LEN_H)
+    out = []
+    for m in ms:
+        local = session.get(Team, m.home_team_id) if m.home_team_id else None
+        visit = session.get(Team, m.away_team_id) if m.away_team_id else None
+        jugado = m.home_score is not None and m.away_score is not None
+        if jugado:
+            estado = "jugado"
+        elif m.start_at and m.start_at <= now < m.start_at + fin_partido:
+            estado = "en_juego"
+        elif m.start_at and now >= m.start_at + fin_partido:
+            estado = "sin_resultado"   # pasó la hora y la FEB aún no ha publicado nada
+        else:
+            estado = "pendiente"
+        movido = None
+        if principal and m.match_date and not jugado:
+            delta = (m.match_date - principal).days
+            movido = "adelantado" if delta <= -2 else "aplazado" if delta >= 2 else None
+        out.append({
+            "match_id": m.id, "jornada": jornada,
+            "home": local.name if local else "?", "away": visit.name if visit else "?",
+            "home_id": m.home_team_id, "away_id": m.away_team_id,
+            "home_score": m.home_score, "away_score": m.away_score,
+            "date": m.match_date.isoformat() if m.match_date else None,
+            "start_at": m.start_at.isoformat() + "Z" if m.start_at else None,
+            "status": estado, "moved": movido,
+        })
+    out.sort(key=lambda r: (r["date"] or "9999-12-31", r["start_at"] or "9999"))
+    return out
+
+
+def next_match_for_team(session: Session, league: FantasyLeague,
+                        team_id: Optional[int], jornada: Optional[int] = None) -> Optional[dict]:
+    """El siguiente partido de un equipo PARA ESTA LIGA: contra quién, cuándo y dónde.
+
+    La referencia es la jornada que le toca a la liga, no el calendario real: jugando una
+    temporada ya disputada (modo repetición) todos los partidos tienen resultado, y
+    filtrar por "sin resultado" no devolvía nada. El marcador no se manda nunca: sería
+    destripar la jornada que está por jugarse.
+    """
+    if not team_id:
+        return None
+    j = jornada if jornada is not None else league_state(session, league)["jornada"]
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num != None,  # noqa: E711
+                            Match.jornada_num >= j,
+                            ((Match.home_team_id == team_id) | (Match.away_team_id == team_id)))
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    cand = sorted(session.exec(q).all(), key=lambda m: (m.jornada_num,
+                                                        m.match_date or date.max,
+                                                        m.start_at or datetime.max))
+    if not cand:
+        return None
+    m = cand[0]
+    en_casa = m.home_team_id == team_id
+    rival = session.get(Team, m.away_team_id if en_casa else m.home_team_id)
+    return {
+        "jornada": m.jornada_num, "home": en_casa,
+        "rival": rival.name if rival else "?",
+        "rival_id": rival.id if rival else None,
+        "date": m.match_date.isoformat() if m.match_date else None,
+        "start_at": m.start_at.isoformat() + "Z" if m.start_at else None,
+    }
 
 
 def _after_jornada(session: Session, league: FantasyLeague) -> None:

@@ -17,7 +17,8 @@ import MarketTab from "./Market";
 import NotificationBell from "./Notifications";
 import TableTab from "./Table";
 import {
-  BidSheet, ClauseSheet, ManagerJornadaSheet, ManagerSheet, PlayerSheet, ScoringSheet,
+  BidSheet, ClauseSheet, ManagerJornadaSheet, ManagerSheet, MatchesSheet, PlayerSheet,
+  ScoringSheet,
 } from "./sheets";
 
 type Tab = "equipo" | "mercado" | "liga" | "feed";
@@ -52,11 +53,16 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [clauseFor, setClauseFor] = useState<any>(null);
   const [scoring, setScoring] = useState(false);
   const [jr, setJr] = useState<any>(null);
+  const [matchesFor, setMatchesFor] = useState<any>(null);
   const inited = useRef(false);
 
   async function load() { const d = await api.league(id); setData(d); return d; }
   async function loadMarket() { const m = await api.market(id); setMarket(m); return m; }
   async function loadClauses() { const c = await api.clauses(id); setClauses(c); return c; }
+  function openMatches(jornada?: number) {
+    setMatchesFor({ loading: true });
+    api.matches(id, jornada).then(setMatchesFor).catch(() => setMatchesFor(null));
+  }
 
   useEffect(() => {
     load().then((d) => {
@@ -158,13 +164,14 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           <div className="appbar__title"><h1>{lg.name}</h1></div>
 
           <div className="metastrip">
-            <div className={"meta" + (ph.live ? " meta--live" : "")}>
+            <button className={"meta" + (ph.live ? " meta--live" : "")}
+              onClick={() => openMatches(ph.j)}>
               <span className="meta__k">
                 <span className={"livedot" + (ph.live ? "" : " livedot--off")} />
                 {ph.chip}
               </span>
               <span className="meta__v num">{phaseLeft ?? "—"}</span>
-            </div>
+            </button>
             <button className="meta" onClick={() => setScoring(true)}>
               <span className="meta__k">Jornada</span>
               <span className="meta__v num">{lg.current_jornada}<span className="muted">/{lg.max_jornada}</span></span>
@@ -190,6 +197,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         {tab === "equipo" && (
           <TeamTab lg={lg} squad={squad} starters={starters} bench={bench} busy={busy}
             ph={ph} left={phaseLeft} onOpen={openPlayer} onToggle={toggleStarter}
+            onMatches={openMatches}
             onScoring={() => setScoring(true)} />
         )}
 
@@ -255,6 +263,11 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           onClause={(p: any) => { setRivalFor(null); setClauseFor(p); }} />
       )}
 
+      {matchesFor && (
+        <MatchesSheet data={matchesFor.loading ? null : matchesFor}
+          onClose={() => setMatchesFor(null)} />
+      )}
+
       {jornadaFor && (
         <ManagerJornadaSheet row={jornadaFor} onClose={() => setJornadaFor(null)}
           onPlayer={(pid, j) => { setJornadaFor(null); openPlayer(pid, j); }} />
@@ -288,7 +301,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
 }
 
 /* ------------------------------------------------------------------ equipo */
-function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle, onScoring }: any) {
+function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle, onScoring,
+  onMatches }: any) {
   const gone = squad.filter((p: any) => p.departed);
   const goneStarters = gone.filter((p: any) => p.starter);
   const lineupFp = r1(starters.reduce((a: number, p: any) => a + (p.departed ? 0 : fp(p)), 0));
@@ -314,6 +328,7 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
             <b>Última llamada para el quinteto</b>
             <span>La jornada {ph.j} empieza en {left ?? "nada"}. Después no se
               podrá tocar nada hasta que termine.</span>
+            <button className="linkbtn" onClick={() => onMatches(ph.j)}>Ver los partidos</button>
           </div>
         </div>
       )}
@@ -323,6 +338,7 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
           <div>
             <b>Jornada {ph.j} en juego</b>
             <span>{ph.note} {left ? `Quedan ${left}.` : ""}</span>
+            <button className="linkbtn" onClick={() => onMatches(ph.j)}>Ver qué falta por jugarse</button>
           </div>
         </div>
       )}
