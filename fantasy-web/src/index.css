@@ -511,6 +511,10 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
   display: inline-flex; align-items: center; gap: 3px; color: var(--clause); font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+.prow__rest {
+  display: inline-flex; align-items: center; gap: 3px; color: var(--text-3); font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.03em; font-size: var(--fs-2xs);
+}
 .prow__bids { display: inline-flex; align-items: center; gap: 3px; color: var(--text-3); font-weight: 700; }
 .prow__gone { color: var(--neg); font-weight: 800; }
 .prow--gone .prow__name { color: var(--text-2); }
@@ -1062,6 +1066,8 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
   margin-top: 14px; padding: 12px 14px; border-radius: var(--r-md);
   background: var(--surface-2); border: 1px solid var(--border);
 }
+.nextmatch--rest { border-style: dashed; }
+.nextmatch--rest .nextmatch__k { color: var(--text-3); }
 .nextmatch__k {
   font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.09em;
   text-transform: uppercase; color: var(--text-3);

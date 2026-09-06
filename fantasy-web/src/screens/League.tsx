@@ -6,10 +6,10 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Me } from "../App";
 import {
-  IconAlert, IconArrowLeft, IconCheck, IconCoin, IconCopy, IconLock,
+  IconAlert, IconArrowLeft, IconCalendar, IconCheck, IconCoin, IconCopy, IconLock,
   IconMarket, IconPlay, IconSearch, IconSquad, IconStar, IconStarOn, IconTrophy,
 } from "../icons";
-import { ClauseMeta, Delta, PlayerRow, fp, phaseInfo } from "../parts";
+import { ClauseMeta, Delta, PlayerRow, RestMeta, fp, phaseInfo } from "../parts";
 import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
@@ -356,6 +356,8 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
   onMatches }: any) {
   const gone = squad.filter((p: any) => p.departed);
   const goneStarters = gone.filter((p: any) => p.starter);
+  // el que descansa suma cero aunque esté sano: mejor enterarse antes de cerrar el quinteto
+  const restStarters = starters.filter((p: any) => p.rests && !p.departed);
   const lineupFp = r1(starters.reduce((a: number, p: any) => a + (p.departed ? 0 : fp(p)), 0));
   const canLineup = (lg.can_lineup ?? true) as boolean;
 
@@ -436,6 +438,24 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
         </div>
       )}
 
+      {restStarters.length > 0 && (
+        <div className="notice">
+          <span className="notice__ico"><IconCalendar size={18} /></span>
+          <div>
+            <b>{restStarters.length === 1
+              ? `${prettyName(restStarters[0].name)} descansa esta jornada`
+              : `${restStarters.length} de tu quinteto descansan esta jornada`}</b>
+            <span>
+              {restStarters.length === 1 ? "Su equipo no juega" : "Sus equipos no juegan"} la
+              jornada {ph.j}: {restStarters.length === 1 ? "sumará" : "sumarán"} 0 puntos aunque
+              {restStarters.length === 1 ? " esté" : " estén"} en el quinteto. La conferencia
+              tiene un número impar de equipos, así que cada jornada descansa uno.
+            </span>
+            <button className="linkbtn" onClick={() => onMatches(ph.j)}>Ver los partidos</button>
+          </div>
+        </div>
+      )}
+
       <Section right={`${starters.length}/${lg.lineup_size}`}>Quinteto titular</Section>
       {starters.length === 0 && (
         <Empty icon={<IconSquad size={22} />} title="No has alineado a nadie">
@@ -445,7 +465,7 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
       {starters.map((p: any) => (
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : "starter"}
-          meta={<><Delta v={p.delta} /><ClauseMeta p={p} /></>}
+          meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>}
           right={<StarBtn p={p} />} />
       ))}
 
@@ -458,7 +478,7 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
       {bench.map((p: any) => (
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : undefined}
-          meta={<><Delta v={p.delta} /><ClauseMeta p={p} /></>}
+          meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>}
           right={<StarBtn p={p} />} />
       ))}
     </>

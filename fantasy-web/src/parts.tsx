@@ -3,7 +3,7 @@
    plantilla del rival) y la fila del feed.
    ========================================================================== */
 import type { ReactNode } from "react";
-import { FEED_ICON, IconBolt, IconGavel, IconInfo, IconLock } from "./icons";
+import { FEED_ICON, IconBolt, IconCalendar, IconGavel, IconInfo, IconLock } from "./icons";
 import { Photo, Trend, prettyName, prettyTeam, relTime, stripEmoji } from "./ui";
 
 export type RowPlayer = {
@@ -19,6 +19,8 @@ export type RowPlayer = {
   delta?: number;
   starter?: boolean;
   departed?: boolean;
+  /** su equipo no juega esta jornada (conferencia con equipos impares) */
+  rests?: boolean;
   clause?: number | null;
   clause_locked?: boolean;
   clause_lock_mins?: number;
@@ -153,6 +155,12 @@ export function ClauseMeta({ p }: { p: RowPlayer }) {
       {p.clause}
     </span>
   );
+}
+
+/** Su equipo no juega esta jornada: sumará cero se ponga como se ponga. */
+export function RestMeta({ p }: { p: RowPlayer }) {
+  if (!p.rests || p.departed) return null;
+  return <span className="prow__rest"><IconCalendar size={11} strokeWidth={2.4} />descansa</span>;
 }
 
 /** Variación de precio desde que lo fichaste. */

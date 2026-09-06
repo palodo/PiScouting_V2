@@ -547,7 +547,8 @@ function JornadaLine({ p, bench, onOpen }: { p: any; bench?: boolean; onOpen?: (
           {prettyTeam(p.team)}{p.gone ? " · ya no lo tiene" : ""}
         </div>
       </div>
-      {p.played ? <PfBox value={p.points} muted={bench} /> : <span className="dnp">No jugó</span>}
+      {p.played ? <PfBox value={p.points} muted={bench} />
+        : <span className="dnp">{p.rests ? "Descansa" : "No jugó"}</span>}
     </div>
   );
 }
@@ -642,8 +643,10 @@ export function fmtMatchDay(iso?: string | null, startAt?: string | null) {
 /** Próximo partido del jugador: rival, dónde y cuándo. */
 function NextMatch({ n }: { n: any }) {
   return (
-    <div className="nextmatch">
-      <span className="nextmatch__k">Jornada {n.jornada}</span>
+    <div className={"nextmatch" + (n.rests_now ? " nextmatch--rest" : "")}>
+      <span className="nextmatch__k">
+        {n.rests_now ? `Descansa · vuelve en la J${n.jornada}` : `Jornada ${n.jornada}`}
+      </span>
       <div className="nextmatch__v">
         <span className="nextmatch__vs">{n.home ? "vs" : "@"}</span>
         {prettyTeam(n.rival)}

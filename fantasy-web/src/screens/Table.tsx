@@ -171,7 +171,7 @@ function JornadaRow({ p, bench, onOpen }: { p: any; bench?: boolean; onOpen?: ()
       </div>
       {p.played
         ? <PfBox value={p.points} muted={bench} />
-        : <span className="dnp">No jugó</span>}
+        : <span className="dnp">{p.rests ? "Descansa" : "No jugó"}</span>}
     </div>
   );
 }

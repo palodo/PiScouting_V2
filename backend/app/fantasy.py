@@ -1589,6 +1589,28 @@ def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> li
     return faltan
 
 
+def resting_teams(session: Session, league: FantasyLeague, jornada: int) -> set[int]:
+    """Equipos de la conferencia que NO juegan esa jornada.
+
+    Con un número impar de equipos (el grupo E-B de 3ª FEB tiene 13) cada jornada
+    descansa uno. Sus jugadores suman cero, igual que si no hubieran jugado, pero no es
+    lo mismo y confunde muchísimo: parece que la app se ha comido un partido. Así que se
+    marca aparte y se dice "descansa", que es lo que pasa de verdad.
+    """
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num == jornada)
+    tq = select(Team).where(Team.competition == league.competition,
+                            Team.season == league.season)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+        tq = tq.where(Team.grupo == league.grupo)
+    juegan: set[int] = set()
+    for m in session.exec(q).all():
+        juegan.update(x for x in (m.home_team_id, m.away_team_id) if x)
+    return {t.id for t in session.exec(tq).all() if t.id not in juegan}
+
+
 def jornada_matches(session: Session, league: FantasyLeague, jornada: int) -> list[dict]:
     """Los partidos de una jornada con su estado, para que se VEA por qué sigue abierta.
 
@@ -1667,9 +1689,11 @@ def next_match_for_team(session: Session, league: FantasyLeague,
         return None
     m = cand[0]
     en_casa = m.home_team_id == team_id
+    # si su siguiente partido es de una jornada posterior, esta la descansa
+    descansa = m.jornada_num != j
     rival = session.get(Team, m.away_team_id if en_casa else m.home_team_id)
     return {
-        "jornada": m.jornada_num, "home": en_casa,
+        "jornada": m.jornada_num, "home": en_casa, "rests_now": descansa,
         "rival": rival.name if rival else "?",
         "rival_id": rival.id if rival else None,
         "date": m.match_date.isoformat() if m.match_date else None,
@@ -1805,6 +1829,7 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
     if out:
         pts = jornada_points(session, league, j)
         info = {r["player_id"]: r for r in all_priced(session, league)}
+        descansan = resting_teams(session, league, j)
         recuperadas = False
         for r in out:
             picks = picks_of(session, r["member_id"])
@@ -1833,6 +1858,8 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
                     "player_id": pid, "name": d.get("name", "?"),
                     "feb_code": d.get("feb_code"), "team": d.get("team"),
                     "points": pts.get(pid, 0.0), "played": pid in pts,
+                    # cero por descanso de calendario, no por quedarse en el banquillo
+                    "rests": pid not in pts and d.get("team_id") in descansan,
                     "starter": bool(saved is not None and pid in saved),
                     # ya no lo tienes: se enseña igual, pero se avisa
                     "gone": pid not in {p.player_id for p in picks},
@@ -1872,13 +1899,18 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
     info = {r["player_id"]: r for r in all_priced(session, league)}
     out = []
     now = utcnow()
+    # el que descansa esta jornada sumará cero haga lo que haga: mejor saberlo antes de
+    # cerrar el quinteto que después, mirando el desglose
+    descansan = resting_teams(session, league, league_state(session, league)["jornada"])
     for p in picks_of(session, member.id):
         d = info.get(p.player_id, {})
         cur = d.get("price", p.buy_price)
         locked = bool(p.clause_locked_until and now < p.clause_locked_until)
         out.append({
             "player_id": p.player_id, "name": d.get("name", "?"), "feb_code": d.get("feb_code"),
-            "team": d.get("team"), "buy_price": p.buy_price, "price": cur,
+            "team": d.get("team"), "team_id": d.get("team_id"),
+            "rests": d.get("team_id") in descansan,
+            "buy_price": p.buy_price, "price": cur,
             "delta": round(cur - p.buy_price, 1), "starter": p.starter,
             "val_avg": d.get("val_avg", 0), "form": d.get("form", 0),
             "fp_avg": d.get("fp_avg", 0), "fp_form": d.get("fp_form", 0),
