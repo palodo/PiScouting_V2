@@ -513,6 +513,12 @@ function RecordatorioDonacion({ me }: { me: Me }) {
   const [abierto, setAbierto] = useState(false);
 
   useEffect(() => {
+    // `?donar=1` la abre a la fuerza y sin dejar rastro: es la única forma de volver a
+    // verla una vez te ha salido, porque a partir de ahí se calla quince días.
+    if (new URLSearchParams(window.location.search).get("donar") === "1") {
+      setAbierto(true);
+      return;
+    }
     const e = leerDona();
     if (e.colaborado) return;
     // Sin `created_at` se da por veterano: es el caso de cualquier cuenta anterior a esto.
