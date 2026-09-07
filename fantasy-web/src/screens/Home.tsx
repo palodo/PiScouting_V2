@@ -61,8 +61,7 @@ export default function Home({ me, onOpen, onLogout, invitacion, onInvitacionUsa
               </Empty>
             )}
             {leagues?.map((l) => (
-              <button key={l.id} onClick={() => onOpen(l.id)}
-                className={"leaguecard" + (l.market_open ? " leaguecard--live" : "")}>
+              <button key={l.id} className="leaguecard" onClick={() => onOpen(l.id)}>
                 <div className="leaguecard__top">
                   <span className="mono">{monogram(l.name)}</span>
                   <span className="leaguecard__id">
