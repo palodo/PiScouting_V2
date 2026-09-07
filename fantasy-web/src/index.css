@@ -59,10 +59,6 @@
   --fs-3xl: 30px;
   --fs-4xl: 38px;
 
-  /* movimiento: las curvas nativas de CSS son flojas y quitan intención */
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-
   /* forma */
   --r-sm: 4px;
   --r-md: 6px;
@@ -338,16 +334,12 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   border: 1px solid transparent; border-radius: var(--r-md); padding: 0 18px; min-height: 46px;
-  font-family: var(--display); font-size: var(--fs-lg); font-weight: 700;
-  letter-spacing: 0.01em; white-space: nowrap;
-  /* Plano y sin halo: el degradado con sombra de color es el CTA de plantilla. Aquí el
-     botón es un bloque de tinta, como el recuadro que se firma en un impreso. */
-  background: var(--accent); color: var(--accent-ink);
-  box-shadow: none;
-  transition: transform 0.13s var(--ease-out), opacity 0.15s var(--ease-out);
+  font-size: var(--fs-md); font-weight: 800; letter-spacing: 0.01em; white-space: nowrap;
+  background: linear-gradient(96deg, var(--accent), var(--accent-2)); color: var(--accent-ink);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 32%, transparent);
+  transition: transform 0.12s, box-shadow 0.15s, opacity 0.15s;
 }
-/* 0.97 se siente en el dedo; 0.985 no llega a notarse. */
-.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:active:not(:disabled) { transform: scale(0.985); }
 .btn:disabled { opacity: 0.42; cursor: not-allowed; box-shadow: none; }
 .btn--block { width: 100%; }
 .btn--sm { min-height: 36px; padding: 0 13px; font-size: var(--fs-sm); border-radius: var(--r-sm); gap: 5px; }
@@ -386,14 +378,12 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .card + .card { margin-top: 10px; }
 
 .sect {
-  display: flex; align-items: baseline; gap: 10px; margin: 26px 0 0;
-  padding-bottom: 5px; border-bottom: 2px solid var(--text);
-  font-family: var(--display); font-size: var(--fs-lg); font-weight: 700; color: var(--text);
-}
-.sect:first-child { margin-top: 2px; }
-.sect__line { flex: 1; }
-.sect__n { color: var(--text-3); font-variant-numeric: tabular-nums; font-size: var(--fs-base); }
-
+  display: flex; align-items: center; gap: 10px; margin: 22px 2px 10px;
+  font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.005em;
+  color: var(--text-3); font-family: var(--display);}
+.sect:first-child { margin-top: 6px; }
+.sect__line { flex: 1; height: 1px; background: var(--border); }
+.sect__n { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .hint { color: var(--text-3); font-size: var(--fs-sm); line-height: 1.5; margin: -4px 2px 12px; }
 .hint b { color: var(--text-2); font-weight: 700; }
 
@@ -464,51 +454,40 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .login__tag { color: var(--text-3); font-size: var(--fs-md); margin-top: 8px; }
 
 /* ------------------------------------------------------------------- ligas */
-/* Un acta no son tarjetas flotando: son filas regladas que llegan de canto a canto.
-   Por eso los márgenes negativos, que anulan el padding lateral de .wrap. */
 .leaguecard {
-  display: block; width: calc(100% + 36px); margin: 0 -18px; text-align: left;
-  padding: 15px 18px; background: none; border: 0; border-bottom: 1px solid var(--border);
-  border-radius: 0; box-shadow: none;
-  transition: background-color 0.14s var(--ease-out);
+  display: block; width: 100%; text-align: left; padding: 15px; margin-bottom: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1); transition: 0.15s;
 }
-.leaguecard:active { background: var(--surface-2); }
-.leaguecard__top { display: flex; align-items: center; gap: 12px; }
-/* La casilla de la izquierda es el sello del margen, no un avatar redondeado. */
+.leaguecard:active { transform: scale(0.99); }
+.leaguecard__top { display: flex; align-items: center; gap: 11px; }
 .mono {
-  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 2px; flex-shrink: 0;
-  background: none; border: 1px solid var(--accent-line); color: var(--accent);
-  font-family: var(--display); font-weight: 700; font-size: var(--fs-base);
+  display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; flex-shrink: 0;
+  background: var(--accent-soft); color: var(--accent);
+  font-family: var(--display); font-weight: 800; font-size: var(--fs-lg);
 }
 .leaguecard__id { flex: 1; min-width: 0; }
-.leaguecard__id b { display: block; font-family: var(--display); font-size: var(--fs-2xl);
-  font-weight: 700; line-height: 1.05; letter-spacing: 0;
+.leaguecard__id b { display: block; font-size: var(--fs-lg); font-weight: 800; letter-spacing: -0.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leaguecard__id span { font-size: var(--fs-sm); color: var(--text-3); }
-/* Línea de marcador: tres cifras sobre una pauta, sin cajas ni rejillas. */
 .leaguecard__stats {
-  /* Anchos fijos a propósito: en un registro las columnas tienen que caer a plomo entre
-     filas. Con `auto` cada liga colocaba sus cifras en un sitio distinto. */
-  display: grid; grid-template-columns: 104px 74px auto; justify-content: start;
-  gap: 0; margin-top: 12px; background: none; border: 0; border-radius: 0; overflow: visible;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 14px;
+  background: var(--border); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden;
 }
-.leaguecard__stats > div { background: none; padding: 0; text-align: left; }
+.leaguecard__stats > div { background: var(--surface); padding: 9px 6px; text-align: center; }
 .leaguecard__stats b {
-  display: block; font-family: var(--display); font-weight: 700; font-size: var(--fs-4xl);
-  line-height: 0.9; letter-spacing: 0; color: var(--text);
+  display: block; font-family: var(--display); font-weight: 700; font-size: var(--fs-3xl);
+  line-height: 0.95; letter-spacing: 0; color: var(--text);
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
 }
 .leaguecard__stats span {
-  display: block; margin-top: 3px; font-size: var(--fs-2xs); color: var(--text-3);
-  font-weight: 500; font-family: var(--font);
-}
-/* El estado va como anotación al margen: ni píldora, ni fondo, ni borde. */
+  font-size: var(--fs-2xs); color: var(--text-3);
+  letter-spacing: 0.005em; font-weight: 700; font-family: var(--display);}
 .badge {
-  display: inline-flex; align-items: center; gap: 5px; padding: 0; border-radius: 0;
-  font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.005em;
-  background: none; color: var(--text-3); border: 0; font-family: var(--font);
-}
-.badge--live { background: none; color: var(--pos); border-color: transparent; }
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px;
+  font-size: var(--fs-2xs); font-weight: 800; letter-spacing: 0.005em;
+  background: var(--surface-2); color: var(--text-3); border: 1px solid var(--border); font-family: var(--display);}
+.badge--live { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
 
 /* ------------------------------------------------------------- pista/equipo */
 .court { position: relative; margin: 2px 0 6px; }
