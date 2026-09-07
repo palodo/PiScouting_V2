@@ -75,6 +75,7 @@ def health(session: Session = Depends(get_session)):
             "at": last.get("finished_at"), "ok": last.get("ok"),
             "pending_matches": last.get("pending_matches"),
             "match_errors": last.get("match_errors"),
+            "sin_detalle": last.get("sin_detalle"),
             "running": refresh_mod.is_running(),
         } if last else None,
     }

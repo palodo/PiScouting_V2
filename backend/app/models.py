@@ -83,6 +83,11 @@ class Match(SQLModel, table=True):
     # Estado de ingesta del detalle (boxscore + tiros)
     status: str = Field(default="scheduled", index=True)  # scheduled|played|ingested
     ingested_at: Optional[datetime] = None
+    # Partidos que la FEB nunca va a servir (incomparecencias: hay marcador, 0-2, pero no
+    # se jugaron y LiveStats responde 404 para siempre). Se marcan para dejar de
+    # reintentarlos cada hora. Ojo: el `status` se queda como está a propósito, porque la
+    # clasificación sí cuenta esa victoria (ver analytics.team_record).
+    details_unavailable: bool = Field(default=False, index=True)
 
 
 class PlayerMatchStat(SQLModel, table=True):

@@ -72,6 +72,12 @@ def _pending_matches(session: Session, season: str) -> int:
                                                    Match.home_score == None)).all())  # noqa: E711
 
 
+def _sin_detalle(session: Session, season: str) -> int:
+    """Partidos que la FEB no sirve y ya no se reintentan (incomparecencias)."""
+    return len(session.exec(select(Match.id).where(
+        Match.season == season, Match.details_unavailable == True)).all())  # noqa: E712
+
+
 def next_season(season: str) -> str:
     try:
         return str(int(season) + 1)
@@ -106,6 +112,7 @@ def run_refresh(season: str | None = None, competitions: list[str] | None = None
                     summary["ok"] = False
 
             summary["pending_matches"] = _pending_matches(s, season)
+            summary["sin_detalle"] = _sin_detalle(s, season)
             # Temporada terminada: mirar si ya está publicada la siguiente. Solo calendario
             # (todavía no hay partidos jugados que ingerir).
             if summary["pending_matches"] == 0:

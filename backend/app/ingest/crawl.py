@@ -1,7 +1,7 @@
 """Orquestador de ingesta: calendario -> equipos/partidos -> detalle (boxscore+tiros)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Optional, Callable
 
 from sqlmodel import Session, select
@@ -11,6 +11,23 @@ from ..models import Team, Match
 from .feb_client import FEBClient, team_code_from_url
 from .calendar import crawl_calendar
 from .pipeline import upsert_team, ingest_match, _parse_date, _parse_start
+
+
+# Margen antes de dar un partido por perdido. Un partido recién jugado puede devolver 404
+# un rato, mientras la FEB sube el acta; pasada una semana, si no está, no va a estar.
+GRACIA_SIN_DETALLE = timedelta(days=7)
+
+
+def _sin_detalle_definitivo(match: Match, err: Exception) -> bool:
+    """¿El fallo es un 404 de LiveStats sobre un partido que ya no es reciente?
+
+    Es el caso de las incomparecencias (0-2): tienen marcador, así que el calendario las
+    marca como jugadas, pero no existe acta que bajar y el 404 se repite cada hora.
+    """
+    resp = getattr(err, "response", None)
+    if resp is None or resp.status_code != 404 or match.match_date is None:
+        return False
+    return date.today() - match.match_date > GRACIA_SIN_DETALLE
 
 
 def _score(resultado: Optional[str]) -> tuple[Optional[int], Optional[int]]:
@@ -79,13 +96,14 @@ def ingest_team(session: Session, team_id: int, *, limit: Optional[int] = None,
         select(Match).where(
             (Match.home_team_id == team_id) | (Match.away_team_id == team_id),
             Match.status == "played",  # jugados pero sin detalle
+            Match.details_unavailable == False,  # noqa: E712 — los que la FEB no sirve
         )
     ).all()
     matches.sort(key=lambda m: (m.jornada_num or 0), reverse=True)  # los más recientes primero
     if limit:
         matches = matches[:limit]
 
-    done = errors = 0
+    done = errors = sin_detalle = 0
     for m in matches:
         home = session.get(Team, m.home_team_id)
         away = session.get(Team, m.away_team_id)
@@ -100,9 +118,17 @@ def ingest_team(session: Session, team_id: int, *, limit: Optional[int] = None,
             )
             done += 1
         except Exception as e:
-            errors += 1
-            log(f"error {m.partido_id}: {e}")
-    return {"team_id": team_id, "ingested": done, "errors": errors, "remaining_before": len(matches)}
+            if _sin_detalle_definitivo(m, e):
+                m.details_unavailable = True
+                session.add(m)
+                session.commit()
+                sin_detalle += 1
+                log(f"sin detalle en la FEB, no se reintentará: {m.partido_id}")
+            else:
+                errors += 1
+                log(f"error {m.partido_id}: {e}")
+    return {"team_id": team_id, "ingested": done, "errors": errors,
+            "sin_detalle": sin_detalle, "remaining_before": len(matches)}
 
 
 def crawl_and_store(session: Session, competition_key: str, season: str, *,
@@ -141,9 +167,10 @@ def crawl_and_store(session: Session, competition_key: str, season: str, *,
     played = [m for m in matches if m.status in ("played", "ingested")]
     log(f"{competition_key}: {len(matches)} partidos ({len(played)} jugados)")
 
-    ingested = errors = 0
+    ingested = errors = sin_detalle = 0
     if ingest_details:
-        pending = [m for m in played if m.status != "ingested"]
+        pending = [m for m in played
+                   if m.status != "ingested" and not m.details_unavailable]
         if limit:
             pending = pending[:limit]
         for i, m in enumerate(pending, 1):
@@ -162,12 +189,19 @@ def crawl_and_store(session: Session, competition_key: str, season: str, *,
                 if i % 10 == 0 or i == len(pending):
                     log(f"  detalle {i}/{len(pending)} ingeridos...")
             except Exception as e:
-                errors += 1
-                log(f"  error partido {m.partido_id}: {e}")
+                if _sin_detalle_definitivo(m, e):
+                    m.details_unavailable = True
+                    session.add(m)
+                    session.commit()
+                    sin_detalle += 1
+                    log(f"  sin detalle en la FEB, no se reintentará: {m.partido_id}")
+                else:
+                    errors += 1
+                    log(f"  error partido {m.partido_id}: {e}")
 
     return {
         "competition": competition_key, "season": season,
         "matches": len(matches), "played": len(played),
-        "ingested": ingested, "errors": errors,
+        "ingested": ingested, "errors": errors, "sin_detalle": sin_detalle,
         "finished_at": datetime.utcnow().isoformat(),
     }
