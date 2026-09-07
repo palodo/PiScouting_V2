@@ -7,7 +7,7 @@ import { api } from "../api";
 import type { Me } from "../App";
 import {
   IconAlert, IconArrowLeft, IconCalendar, IconCheck, IconCoin, IconCopy, IconLock,
-  IconMarket, IconPlay, IconSearch, IconSquad, IconStar, IconStarOn, IconTrophy,
+  IconMarket, IconPlay, IconSearch, IconSquad, IconTrophy,
 } from "../icons";
 import { ClauseMeta, Delta, PlayerRow, RestMeta, fp, phaseInfo } from "../parts";
 import {
@@ -385,19 +385,23 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
   const goneStarters = gone.filter((p: any) => p.starter);
   // el que descansa suma cero aunque esté sano: mejor enterarse antes de cerrar el quinteto
   const restStarters = starters.filter((p: any) => p.rests && !p.departed);
-  const lineupFp = r1(starters.reduce((a: number, p: any) => a + (p.departed ? 0 : fp(p)), 0));
   const canLineup = (lg.can_lineup ?? true) as boolean;
 
-  const StarBtn = ({ p }: { p: any }) => (
-    <button className={"iconbtn" + (p.starter ? " is-on" : "")}
-      disabled={busy || p.departed || !canLineup}
-      title={!canLineup ? "El quinteto está cerrado"
-        : p.departed ? "Ya no puntúa en esta conferencia"
-          : p.starter ? "Quitar del quinteto" : "Poner en el quinteto"}
-      onClick={(e) => { e.stopPropagation(); onToggle(p.player_id, p.starter); }}>
-      {p.starter ? <IconStarOn size={19} /> : <IconStar size={19} />}
-    </button>
-  );
+  // Una estrella se lee como "favorito", no como "titular", y por eso nadie entendía qué
+  // hacía. Un botón que dice la acción con todas las letras no necesita explicación.
+  const LineupBtn = ({ p }: { p: any }) => {
+    const lleno = !p.starter && starters.length >= lg.lineup_size;
+    return (
+      <button className={"btn btn--sm" + (p.starter ? " btn--quiet" : "")}
+        disabled={busy || p.departed || !canLineup || lleno}
+        title={!canLineup ? "El quinteto está cerrado"
+          : p.departed ? "Ya no puntúa en esta conferencia"
+            : lleno ? `Ya tienes ${lg.lineup_size} titulares` : undefined}
+        onClick={(e) => { e.stopPropagation(); onToggle(p.player_id, p.starter); }}>
+        {p.starter ? "Sacar" : "Alinear"}
+      </button>
+    );
+  };
 
   return (
     <>
@@ -439,16 +443,6 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
         })}
       </div>
 
-      <button className="lineup" onClick={onScoring}>
-        <div style={{ flex: 1, textAlign: "left" }}>
-          <div className="lineup__k">Proyección por jornada</div>
-          <div className="lineup__note">
-            Lo que suma tu quinteto con su media de puntos fantasy · cómo se calculan
-          </div>
-        </div>
-        <div className="lineup__v num">{lineupFp}</div>
-      </button>
-
       {gone.length > 0 && (
         <div className="notice">
           <span className="notice__ico"><IconAlert size={18} /></span>
@@ -486,14 +480,14 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
       <Section right={`${starters.length}/${lg.lineup_size}`}>Quinteto titular</Section>
       {starters.length === 0 && (
         <Empty icon={<IconSquad size={22} />} title="No has alineado a nadie">
-          Marca con la estrella a {lg.lineup_size} jugadores de tu plantilla.
+          Pulsa «Alinear» en {lg.lineup_size} jugadores de tu banquillo.
         </Empty>
       )}
       {starters.map((p: any) => (
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : "starter"}
           meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>}
-          right={<StarBtn p={p} />} />
+          right={<LineupBtn p={p} />} />
       ))}
 
       <Section right={String(bench.length)}>Banquillo</Section>
@@ -506,8 +500,12 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : undefined}
           meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>}
-          right={<StarBtn p={p} />} />
+          right={<LineupBtn p={p} />} />
       ))}
+
+      <button className="linkbtn" style={{ margin: "18px auto 0" }} onClick={onScoring}>
+        Cómo se calculan los puntos
+      </button>
     </>
   );
 }

@@ -503,9 +503,12 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 }
 .prow__side { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; flex-shrink: 0; }
 .prow__meta {
-  display: flex; align-items: center; gap: 9px; margin-top: 4px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 9px; margin-top: 4px;
   font-size: var(--fs-sm); color: var(--text-2); font-weight: 600;
 }
+/* Cada dato se parte entero o no se parte: "5.9 M€" cortado en "5.9" y "M€" en dos
+   líneas no es un precio, es ruido. Envuelven como bloques, no por dentro. */
+.prow__meta > * { white-space: nowrap; flex-shrink: 0; }
 .prow__price { font-weight: 800; color: var(--text-2); }
 .prow__clause {
   display: inline-flex; align-items: center; gap: 3px; color: var(--clause); font-weight: 800;
