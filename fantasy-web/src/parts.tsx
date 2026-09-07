@@ -4,7 +4,7 @@
    ========================================================================== */
 import type { ReactNode } from "react";
 import { FEED_ICON, IconBolt, IconCalendar, IconGavel, IconInfo, IconLock } from "./icons";
-import { Photo, Trend, prettyName, prettyTeam, relTime, stripEmoji } from "./ui";
+import { Photo, Trend, fmtWhen, prettyName, prettyTeam, relTime, stripEmoji } from "./ui";
 
 export type RowPlayer = {
   player_id: number;
@@ -69,7 +69,8 @@ export function phaseInfo(lg: any) {
     title: lg?.market_open ? "Mercado abierto · tanda nueva en" : "Mercado · abre en",
     until: lg?.market_open ? (lg?.market_closes_at ?? null) : (lg?.market_opens_at ?? null),
     live: Boolean(lg?.market_open),
-    note: `Se ficha hasta ${lg?.market_close_before_h ?? 24} h antes de la jornada ${j}.`,
+    // el día y la hora concretos: "hasta 24 h antes" obliga a hacer la cuenta
+    note: `Se ficha hasta ${fmtWhen(lg?.market_deadline)}, y luego solo se toca el quinteto.`,
   };
 }
 

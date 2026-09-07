@@ -810,6 +810,12 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .sheet__head h2 { font-size: var(--fs-xl); line-height: 1.2; }
 .sheet__close { position: absolute; }
 .sheet__body { flex: 1; min-width: 0; }
+/* insignia redonda a la izquierda del título, cuando la hoja no abre con una foto */
+.sheet__ico {
+  display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0;
+  border-radius: 50%; background: var(--surface-2); color: var(--text-2);
+  border: 1px solid var(--border);
+}
 /* Los botones (vender, cláusula, pujar) se quedan pegados al fondo de la hoja: con las
    estadísticas debajo, quedaban fuera de pantalla y parecía que la opción no existía. */
 .sheet__actions {

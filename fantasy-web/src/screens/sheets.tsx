@@ -4,11 +4,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import {
-  IconBolt, IconCheck, IconClock, IconClose, IconCoin, IconCopy, IconGavel, IconLock,
-  IconMinus, IconPlus, IconShare, IconWhatsApp,
+  IconBolt, IconCalendar, IconCheck, IconClock, IconClose, IconCoin, IconCopy, IconGavel,
+  IconLock, IconMinus, IconPlus, IconShare, IconSquad, IconWhatsApp,
 } from "../icons";
 import { PfBox, PlayerRow, lockLabel } from "../parts";
-import { Loading, Photo, Section, Sheet, SheetClose, fullName, prettyName, prettyTeam } from "../ui";
+import {
+  Loading, Photo, Section, Sheet, SheetClose, fmtWhen, fullName, prettyName, prettyTeam,
+} from "../ui";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -463,9 +465,9 @@ export function ScoringSheet({ lg, onClose }: { lg: any; onClose: () => void }) 
             las {hh(lg.market_hour)}. Se puja en secreto, se ficha por cláusula y se vende.</span>
         </li>
         <li>
-          <b>Cierre, {lg.market_close_before_h} h antes</b>
-          <span>El mercado echa el cierre el día antes del primer partido. A partir de ahí
-            solo puedes cambiar el quinteto.</span>
+          <b>Cierre · {fmtWhen(lg.market_deadline)}</b>
+          <span>El mercado echa el cierre la noche antes del primer partido ({lg.market_close_before_h} h
+            antes). A partir de ahí solo puedes cambiar el quinteto.</span>
         </li>
         <li>
           <b>Primer salto · {DAYS[lg.play_weekday ?? 5]} a las {hh(lg.play_hour)}</b>
@@ -474,7 +476,8 @@ export function ScoringSheet({ lg, onClose }: { lg: any; onClose: () => void }) 
         <li>
           <b>Fin de jornada</b>
           <span>Se puntúa sola en cuanto se han jugado todos los partidos. Si hay alguno
-            aplazado, la liga espera a que se dispute.</span>
+            aplazado, la liga espera a que se dispute: cuando llegue puntuará el quinteto
+            que tenías al empezar la jornada, aunque alguno ya no sea tuyo.</span>
         </li>
       </ol>
 
@@ -655,6 +658,57 @@ function NextMatch({ n }: { n: any }) {
         {n.home ? "En casa" : "Fuera"} · {fmtMatchDay(n.date, n.start_at)}
       </span>
     </div>
+  );
+}
+
+/* --------------------------------------------------- aviso de descansos */
+/**
+ * Salta solo, y solo mientras aún se puede arreglar: durante la semana de mercado y en
+ * el último cambio de quinteto. Un jugador que descansa suma cero y no hay forma de
+ * saberlo mirando su ficha, así que no vale con dejarlo escrito en la pantalla del
+ * equipo: hay que ponerlo delante. Una vez por jornada; luego se calla.
+ */
+export function RestSheet({ jugadores, jornada, onClose, onFix }: {
+  jugadores: any[]; jornada: number; onClose: () => void; onFix: () => void;
+}) {
+  const uno = jugadores.length === 1;
+  return (
+    <Sheet onClose={onClose} title="Descansos de la jornada">
+      <div className="sheet__head">
+        <span className="sheet__ico"><IconCalendar size={22} /></span>
+        <div className="sheet__body">
+          <h2>{uno ? "Uno de tu quinteto descansa" : `${jugadores.length} de tu quinteto descansan`}</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            En la jornada {jornada} {uno ? "su equipo no juega" : "sus equipos no juegan"}
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      {jugadores.map((p) => (
+        <div key={p.player_id} className="prow">
+          <Photo code={p.feb_code} name={p.name} variant="sm" />
+          <div className="prow__body">
+            <div className="prow__name">{prettyName(p.name)}</div>
+            <div className="prow__team">{prettyTeam(p.team)}</div>
+          </div>
+          <span className="dnp">Descansa</span>
+        </div>
+      ))}
+
+      <p className="hint" style={{ marginTop: 12 }}>
+        La conferencia tiene un número impar de equipos, así que cada jornada descansa uno.
+        {uno ? " Sumará" : " Sumarán"} 0 puntos aunque {uno ? "esté" : "estén"} en el
+        quinteto: cámbia{uno ? "lo" : "los"} por alguien del banquillo mientras puedas.
+      </p>
+
+      <button className="btn btn--block btn--lg" style={{ marginTop: 14 }} onClick={onFix}>
+        <IconSquad size={17} />Ir al quinteto
+      </button>
+      <button className="btn btn--quiet btn--block" style={{ marginTop: 8 }} onClick={onClose}>
+        Ya lo sé, dejarlo así
+      </button>
+    </Sheet>
   );
 }
 

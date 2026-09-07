@@ -21,7 +21,7 @@ import NotificationBell from "./Notifications";
 import TableTab from "./Table";
 import {
   BidSheet, ClauseSheet, InviteSheet, ManagerJornadaSheet, ManagerSheet, MatchesSheet,
-  OfferSheet, PlayerSheet, ScoringSheet,
+  OfferSheet, PlayerSheet, RestSheet, ScoringSheet,
 } from "./sheets";
 
 type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "apuestas";
@@ -65,6 +65,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [players, setPlayers] = useState<any>(null);
   const [offerFor, setOfferFor] = useState<any>(null);
   const [bets, setBets] = useState<any>(null);
+  const [avisoDescanso, setAvisoDescanso] = useState(false);
+  const avisado = useRef(false);
   const inited = useRef(false);
 
   async function load() { const d = await api.league(id); setData(d); return d; }
@@ -100,6 +102,24 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   }, [tab, data?.league?.market_open]);
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 2800); return () => clearTimeout(t); }, [msg]);
   useEffect(() => { setJr(data?.jornada_ranking ?? null); }, [data?.jornada_ranking]);
+  // Descansos: se avisa una vez por jornada, y solo mientras aún se puede cambiar el
+  // quinteto. Si ya ha saltado el primer partido, enterarse no sirve de nada.
+  const restKey = (j: number) => `pf_rest_${id}_${j}`;
+  function descansoVisto(j: number) {
+    try { localStorage.setItem(restKey(j), "1"); } catch { /* da igual */ }
+    avisado.current = true;
+    setAvisoDescanso(false);
+  }
+  useEffect(() => {
+    if (avisado.current) return;          // una vez por visita, pase lo que pase
+    const f = phaseInfo(data?.league);
+    const duermen = (data?.my_squad ?? []).filter((p: any) => p.starter && p.rests && !p.departed);
+    if (!duermen.length || (f.phase !== "mercado" && f.phase !== "alineacion")) return;
+    try {
+      if (localStorage.getItem(restKey(f.j))) return;
+    } catch { /* navegador sin almacenamiento: se avisa igual */ }
+    setAvisoDescanso(true);
+  }, [id, data?.my_squad, data?.league?.current_jornada]);
 
   // La fase (mercado / último cambio de quinteto / jornada en juego) manda en toda la pantalla.
   const ph = phaseInfo(data?.league);
@@ -302,6 +322,13 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           onClose={() => setRivalFor(null)}
           onPlayer={(pid) => { setRivalFor(null); openPlayer(pid); }}
           onClause={(p: any) => { setRivalFor(null); setClauseFor(p); }} />
+      )}
+
+      {avisoDescanso && (
+        <RestSheet jornada={ph.j}
+          jugadores={squad.filter((p: any) => p.starter && p.rests && !p.departed)}
+          onClose={() => descansoVisto(ph.j)}
+          onFix={() => { descansoVisto(ph.j); setTab("equipo"); }} />
       )}
 
       {invitando && (

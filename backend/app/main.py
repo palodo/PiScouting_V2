@@ -582,7 +582,7 @@ class CreateLeagueBody(BaseModel):
     play_weekday: int = 5
     play_hour: int = 18
     play_duration_h: int = 30
-    market_close_before_h: int = 24
+    market_close_before_h: int = 19
 
 
 class JoinLeagueBody(BaseModel):

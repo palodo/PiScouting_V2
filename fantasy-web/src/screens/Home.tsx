@@ -117,7 +117,7 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
     market_weekday: 4, market_hour: 20, market_duration_h: 24, market_size: 10,
     budget: 100, squad_size: 10, lineup_size: 5, initial_squad: 5,
     clause_factor: 2.0, clause_lock_h: 24,
-    play_weekday: 5, play_hour: 18, play_duration_h: 30, market_close_before_h: 24,
+    play_weekday: 5, play_hour: 18, play_duration_h: 30, market_close_before_h: 19,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -234,7 +234,11 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
             <span className="field__label">El mercado cierra</span>
             <select className="select" value={f.market_close_before_h}
               onChange={(e) => set("market_close_before_h", Number(e.target.value))}>
-              {[6, 12, 24, 48].map((h) => <option key={h} value={h}>{h} h antes</option>)}
+              {[6, 12, 19, 24, 48].map((h) => (
+                <option key={h} value={h}>
+                  {h} h antes{h === 19 ? " · la noche anterior" : ""}
+                </option>
+              ))}
             </select>
           </label>
           <label className="field" style={{ marginBottom: 0 }}>
@@ -246,8 +250,9 @@ function CreateLeague({ onDone }: { onDone: (id: number) => void }) {
           </label>
         </div>
         <p className="hint" style={{ margin: "12px 0 0" }}>
-          El mercado cierra {f.market_close_before_h} h antes del primer partido; el quinteto,
-          al empezar la jornada. Mientras se juega no se toca nada, y se puntúa sola al acabar.
+          Con estos valores se ficha de lunes a viernes, el mercado echa el cierre el
+          viernes por la noche y el fin de semana solo se mira: el quinteto se congela al
+          primer partido y la jornada se puntúa sola al acabar.
         </p>
       </div>
 

@@ -41,7 +41,7 @@ from .models import (
     Team, Player, Match, PlayerMatchStat,
     FantasyLeague, FantasyMember, FantasyPick, FantasyListing, FantasyBid, FantasyEvent,
     FantasyNotification, FantasyOffer,
-    FantasyJornadaScore,
+    FantasyJornadaScore, FantasyLineup,
 )
 
 try:  # hora peninsular para el horario del mercado
@@ -708,6 +708,8 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
             continue
 
         if phase == "jornada":
+            # Lo primero al saltar: dejar por escrito con qué quinteto entra cada uno.
+            freeze_lineups(session, league, state["jornada"])
             # Jugada entera (y sin aplazamientos pendientes): se puntúa sola.
             if now >= state["ends_at"] and not state["pending"] and advance(session, league).get("ok"):
                 changed = True
@@ -775,7 +777,7 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
                   clause_lock_h: int = 24, open_now: bool = True,
                   sim_mode: Optional[bool] = None, play_weekday: int = 5, play_hour: int = 18,
                   play_duration_h: int = 30,
-                  market_close_before_h: int = 24) -> FantasyLeague:
+                  market_close_before_h: int = 19) -> FantasyLeague:
     if competition not in FANTASY_COMPETITIONS:
         raise ValueError("Esa competición no está disponible para el fantasy.")
     prog = season_progress(session, competition, grupo, season)
@@ -1724,6 +1726,42 @@ def _after_jornada(session: Session, league: FantasyLeague) -> None:
     league.market_opens_at = now
 
 
+def freeze_lineups(session: Session, league: FantasyLeague, jornada: int) -> int:
+    """Guarda el quinteto de cada mánager al empezar la jornada. Idempotente.
+
+    A partir de aquí la jornada ya no depende de la plantilla de hoy: puntúa la de
+    entonces. Es lo que hace que un aplazamiento no reparta los puntos de otra manera.
+    """
+    ya = {r.member_id for r in session.exec(select(FantasyLineup).where(
+        FantasyLineup.league_id == league.id, FantasyLineup.jornada == jornada)).all()}
+    nuevos = 0
+    for m in session.exec(select(FantasyMember).where(
+            FantasyMember.league_id == league.id)).all():
+        if m.id in ya:
+            continue
+        ids = [p.player_id for p in picks_of(session, m.id) if p.starter]
+        session.add(FantasyLineup(league_id=league.id, member_id=m.id, jornada=jornada,
+                                  player_ids=json.dumps(ids)))
+        nuevos += 1
+    if nuevos:
+        session.commit()
+    return nuevos
+
+
+def frozen_lineup(session: Session, league: FantasyLeague, member_id: int,
+                  jornada: int) -> Optional[list[int]]:
+    """El quinteto congelado de esa jornada, o None si no llegó a guardarse."""
+    row = session.exec(select(FantasyLineup).where(
+        FantasyLineup.league_id == league.id, FantasyLineup.member_id == member_id,
+        FantasyLineup.jornada == jornada)).first()
+    if not row:
+        return None
+    try:
+        return json.loads(row.player_ids)
+    except (TypeError, ValueError):
+        return None
+
+
 def advance(session: Session, league: FantasyLeague) -> dict:
     if league.current_jornada >= league.max_jornada:
         return {"ok": False, "done": True, "message": "La temporada ya está completa"}
@@ -1738,7 +1776,11 @@ def advance(session: Session, league: FantasyLeague) -> dict:
     members = session.exec(select(FantasyMember).where(FantasyMember.league_id == league.id)).all()
     breakdown = []
     for m in members:
-        starters = [p.player_id for p in picks_of(session, m.id) if p.starter]
+        # el de aquel día, no el de ahora: entre medias puede haber pasado un mercado
+        # entero si la jornada se quedó esperando a un aplazado
+        starters = frozen_lineup(session, league, m.id, nxt)
+        if starters is None:
+            starters = [p.player_id for p in picks_of(session, m.id) if p.starter]
         gained = round(sum(pts.get(pid, 0.0) for pid in starters), 1)
         m.total_points = round(m.total_points + gained, 1)
         session.add(m)

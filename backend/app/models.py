@@ -170,7 +170,10 @@ class FantasyLeague(SQLModel, table=True):
     play_weekday: int = 5            # 0=lunes … 6=domingo: día del primer partido de la jornada
     play_hour: int = 18              # hora local (Europe/Madrid) del primer salto
     play_duration_h: int = 30        # lo que dura la jornada desde ese primer salto
-    market_close_before_h: int = 24  # el mercado cierra estas horas antes (24 = el día antes)
+    # el mercado cierra estas horas antes del primer partido. 19 con el salto del sábado
+    # a las 18:00 deja el cierre el VIERNES A LAS 23:00: se ficha entre semana y el fin de
+    # semana solo se mira.
+    market_close_before_h: int = 19
     kickoff_at: Optional[datetime] = None  # UTC: primer salto de la jornada current+1
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -263,6 +266,24 @@ class FantasyJornadaScore(SQLModel, table=True):
     # jornada pasada usaba la plantilla de HOY y el desglose no cuadraba con el total.
     starters: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FantasyLineup(SQLModel, table=True):
+    """El quinteto con el que un mánager entró en una jornada.
+
+    Se guarda al primer salto y es lo que puntúa, pase lo que pase después. Importa por
+    los aplazamientos: si un partido se mueve, esa jornada puede resolverse semanas más
+    tarde, con el mercado abierto de por medio. Los cinco que estaban puestos ese día son
+    los que suman, aunque alguno ya se haya vendido o lo hayan clausulado.
+    """
+    __tablename__ = "fantasy_lineups"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    member_id: int = Field(foreign_key="fantasy_members.id", index=True)
+    jornada: int = Field(index=True)
+    player_ids: str = ""                         # JSON: los titulares de ese momento
+    frozen_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class FantasyBetOption(SQLModel, table=True):
