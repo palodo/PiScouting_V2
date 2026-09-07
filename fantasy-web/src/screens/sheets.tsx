@@ -1102,8 +1102,12 @@ export function ResumenSheet({ leagueId, jornada, onClose, onPlayer }: {
       )}
 
       <div className="res">
-        {d?.lideres?.map((l: any) => (
+        {d?.lideres?.map((l: any, i: number) => (
+          // Entrada escalonada: es el único sitio de la app donde se anima algo sin que el
+          // usuario lo haya pedido, y se lo gana porque pasa una vez por jornada. El
+          // retraso va por fila para que se lean en orden, como quien canta un palmarés.
           <button key={l.clave} className="res__row"
+            style={{ animationDelay: `${i * 55}ms` }}
             onClick={() => onPlayer?.(l.player_id)}>
             <Photo code={l.feb_code} name={l.name} variant="sm" />
             <div className="res__b">

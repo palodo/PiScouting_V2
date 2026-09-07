@@ -1514,3 +1514,14 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .qn__tw small { font-size: var(--fs-xs); color: var(--text-3); }
 .qn__ts { font-family: var(--display); font-weight: 800; font-size: var(--fs-xl);
   color: var(--clause); }
+
+/* El palmarés de la jornada se canta en orden: cada línea entra 55 ms detrás de la
+   anterior. `both` para que empiecen invisibles y no den un salto al arrancar. */
+@keyframes res-canta {
+  from { transform: translateY(9px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.res__row { animation: res-canta 260ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .res__row { animation: none; }
+}
