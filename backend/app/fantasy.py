@@ -1962,6 +1962,7 @@ def advance(session: Session, league: FantasyLeague) -> dict:
     try:
         from . import bets as bets_mod
         bets_mod.resolver(session, league, nxt)
+        bets_mod.quiniela_resolver(session, league, nxt)
     except Exception as e:  # noqa: BLE001 - una apuesta rota no puede bloquear la jornada
         print(f"[apuestas] no se pudieron resolver las de la jornada {nxt}: {e}", flush=True)
     _after_jornada(session, league)

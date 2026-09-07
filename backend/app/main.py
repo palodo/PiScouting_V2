@@ -732,6 +732,38 @@ def fantasy_jornada_ranking(league_id: int, jornada: int,
     return fantasy_mod.jornada_ranking(session, _get_league(session, league_id), jornada)
 
 
+class QuinielaBody(BaseModel):
+    option_ids: list[int] = []
+
+
+@app.get("/api/fantasy/leagues/{league_id}/quiniela")
+def fantasy_quiniela(league_id: int, user: User = Depends(auth.get_current_user),
+                     session: Session = Depends(get_session)):
+    """El menú de pronósticos, los tuyos y la clasificación de acertantes."""
+    lg = _get_league(session, league_id)
+    m = fantasy_mod.member_of(session, lg.id, user.id)
+    st = fantasy_mod.league_state(session, lg)
+    return {**bets_mod.quiniela(session, lg, m, st["jornada"]),
+            "abierta": st["phase"] in ("mercado", "alineacion")}
+
+
+@app.post("/api/fantasy/leagues/{league_id}/quiniela")
+def fantasy_quiniela_guardar(league_id: int, body: QuinielaBody,
+                             user: User = Depends(auth.get_current_user),
+                             session: Session = Depends(get_session)):
+    lg = _get_league(session, league_id)
+    m = fantasy_mod.member_of(session, lg.id, user.id)
+    if not m:
+        raise HTTPException(403, "No estás en esta liga")
+    st = fantasy_mod.league_state(session, lg)
+    if st["phase"] not in ("mercado", "alineacion"):
+        raise HTTPException(400, "La jornada ya ha empezado: los pronósticos están cerrados")
+    try:
+        return bets_mod.quiniela_guardar(session, lg, m, st["jornada"], body.option_ids)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/fantasy/leagues/{league_id}/directo")
 def fantasy_directo(league_id: int, user: User = Depends(auth.get_current_user),
                     session: Session = Depends(get_session)):

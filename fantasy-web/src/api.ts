@@ -79,6 +79,9 @@ export const api = {
   sim: (id: number, accion: "cerrar" | "jugar" | "finalizar", cuantos = 0) =>
     post(`/fantasy/leagues/${id}/sim/${accion}`, { cuantos }),
   directo: (id: number) => get(`/fantasy/leagues/${id}/directo`),
+  quiniela: (id: number) => get(`/fantasy/leagues/${id}/quiniela`),
+  guardarQuiniela: (id: number, option_ids: number[]) =>
+    post(`/fantasy/leagues/${id}/quiniela`, { option_ids }),
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),
 
   // sin liga, los avisos de todas; con liga, solo los de esa

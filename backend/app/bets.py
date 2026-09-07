@@ -30,7 +30,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from .models import (FantasyBet, FantasyBetLeg, FantasyBetOption, FantasyLeague,
-                     FantasyMember, Match, Player, PlayerMatchStat, Team)
+                     FantasyMember, Match, Player, PlayerMatchStat, Team, FantasyQuinielaPick)
 
 MARGEN = 0.08          # se queda la casa; es lo que evita que la liga se infle
 STAKE_MAX = 2.0        # M€ jugados por jornada y mánager
@@ -544,3 +544,120 @@ def resolver(session: Session, league: FantasyLeague, jornada: int) -> dict:
         session.add(b)
     session.commit()
     return {"ganadas": ganadas, "perdidas": perdidas, "anuladas": anuladas}
+
+
+# ============================ la quiniela ============================
+# Sustituye a las apuestas con dinero. El menú, las probabilidades y el motor que resuelve
+# son los mismos; lo que cambia es la economía: aquí no se juega nada y se ganan puntos.
+
+PRONOSTICOS = 5          # cuántos se eligen por jornada
+
+
+def _pick_out(p: FantasyQuinielaPick) -> dict:
+    return {"option_id": p.option_id, "label": p.label, "odds": p.odds, "band": p.band,
+            "status": p.status, "points": p.points, "result": p.result,
+            "jornada": p.jornada}
+
+
+def quiniela(session: Session, league: FantasyLeague, member: Optional[FantasyMember],
+             jornada: int) -> dict:
+    """El menú de la jornada, lo que ha elegido este mánager y la clasificación."""
+    generar_menu(session, league, jornada)
+    opciones = session.exec(select(FantasyBetOption).where(
+        FantasyBetOption.league_id == league.id,
+        FantasyBetOption.jornada == jornada).order_by(FantasyBetOption.id)).all()
+
+    mios, historial = [], []
+    if member:
+        for p in session.exec(select(FantasyQuinielaPick).where(
+                FantasyQuinielaPick.league_id == league.id,
+                FantasyQuinielaPick.member_id == member.id)
+                .order_by(FantasyQuinielaPick.jornada.desc(),
+                          FantasyQuinielaPick.id)).all():
+            (mios if p.jornada == jornada else historial).append(_pick_out(p))
+
+    return {
+        "jornada": jornada,
+        "cuantos": PRONOSTICOS,
+        "options": [_opcion_out(o) for o in opciones],
+        "mis_pronosticos": mios,
+        "historial": historial,
+        "clasificacion": quiniela_clasificacion(session, league),
+    }
+
+
+def quiniela_guardar(session: Session, league: FantasyLeague, member: FantasyMember,
+                     jornada: int, option_ids: list[int]) -> dict:
+    """Guarda los pronósticos de la jornada. Se puede cambiar hasta que empiece."""
+    ids = list(dict.fromkeys(option_ids))       # sin repetidos, conservando el orden
+    if len(ids) > PRONOSTICOS:
+        raise ValueError(f"Como mucho {PRONOSTICOS} pronósticos por jornada")
+
+    ya = session.exec(select(FantasyQuinielaPick).where(
+        FantasyQuinielaPick.league_id == league.id,
+        FantasyQuinielaPick.member_id == member.id,
+        FantasyQuinielaPick.jornada == jornada)).all()
+    if any(p.status != "pending" for p in ya):
+        raise ValueError("Esta jornada ya está resuelta")
+    for p in ya:
+        session.delete(p)
+
+    for oid in ids:
+        o = session.get(FantasyBetOption, oid)
+        if not o or o.league_id != league.id or o.jornada != jornada:
+            raise ValueError("Ese pronóstico no es de esta jornada")
+        session.add(FantasyQuinielaPick(
+            league_id=league.id, member_id=member.id, jornada=jornada, option_id=o.id,
+            label=o.label, odds=o.odds, band=o.band or "normal"))
+    session.commit()
+    return {"ok": True, "guardados": len(ids)}
+
+
+def quiniela_resolver(session: Session, league: FantasyLeague, jornada: int) -> dict:
+    """Resuelve los pronósticos de una jornada. Cada acierto vale su cuota."""
+    pendientes = session.exec(select(FantasyQuinielaPick).where(
+        FantasyQuinielaPick.league_id == league.id,
+        FantasyQuinielaPick.jornada == jornada,
+        FantasyQuinielaPick.status == "pending")).all()
+    acertados = 0
+    for p in pendientes:
+        o = session.get(FantasyBetOption, p.option_id) if p.option_id else None
+        if not o:
+            p.status, p.points = "void", 0.0
+        else:
+            estado, dato = _resultado_pata(session, league, o, jornada)
+            p.status, p.result = estado, dato
+            # 'void' es que no jugó o se aplazó: ni suma ni cuenta como fallo, porque no
+            # fue culpa de quien pronosticó
+            p.points = round(p.odds, 2) if estado == "won" else 0.0
+            acertados += 1 if estado == "won" else 0
+        session.add(p)
+    session.commit()
+    return {"resueltos": len(pendientes), "acertados": acertados}
+
+
+def quiniela_clasificacion(session: Session, league: FantasyLeague) -> list[dict]:
+    """Clasificación de acertantes de toda la temporada."""
+    filas: dict[int, dict] = {}
+    for m in session.exec(select(FantasyMember).where(
+            FantasyMember.league_id == league.id)).all():
+        filas[m.id] = {"member_id": m.id, "manager": m.manager_name,
+                       "points": 0.0, "aciertos": 0, "fallos": 0, "jugados": 0}
+    for p in session.exec(select(FantasyQuinielaPick).where(
+            FantasyQuinielaPick.league_id == league.id,
+            FantasyQuinielaPick.status != "pending")).all():
+        f = filas.get(p.member_id)
+        if not f:
+            continue
+        f["points"] = round(f["points"] + p.points, 2)
+        if p.status == "won":
+            f["aciertos"] += 1
+            f["jugados"] += 1
+        elif p.status == "lost":
+            f["fallos"] += 1
+            f["jugados"] += 1
+    out = sorted(filas.values(), key=lambda r: (-r["points"], -r["aciertos"]))
+    for i, r in enumerate(out):
+        r["pos"] = out[i - 1]["pos"] if i and r["points"] == out[i - 1]["points"] else i + 1
+        r["acierto_pct"] = round(100 * r["aciertos"] / r["jugados"]) if r["jugados"] else None
+    return out

@@ -1458,3 +1458,59 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 /* La pestaña del mercado, cuando es el directo, late en verde */
 .tab--live.is-on { color: var(--pos); }
 .tab--live.is-on .tab__ico { color: var(--pos); }
+
+/* ----------------------------------------------------------- quiniela */
+.qn__head {
+  display: flex; align-items: center; gap: 14px; margin: 4px 0 10px;
+  padding: 13px 15px; border-radius: var(--r-lg);
+  background: linear-gradient(120deg, var(--clause-soft), var(--surface) 62%);
+  border: 1px solid color-mix(in srgb, var(--clause) 34%, transparent);
+}
+.qn__head > div:first-child { flex: 1; min-width: 0; }
+.qn__k { font-size: var(--fs-xs); font-weight: 800; color: var(--clause); }
+.qn__n { font-size: var(--fs-md); color: var(--text-2); margin-top: 2px; }
+.qn__n b { font-size: var(--fs-2xl); color: var(--text); }
+.qn__lock { font-size: var(--fs-sm); color: var(--text-3); font-weight: 700; }
+
+.qn__list { display: grid; gap: 6px; }
+.qn__o {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 8px 11px 8px 8px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  transition: border-color 0.14s var(--ease-out), background-color 0.14s var(--ease-out);
+}
+.qn__o.is-on { border-color: var(--clause); background: var(--clause-soft); }
+.qn__o:disabled { opacity: 0.42; }
+.qn__ol { flex: 1; min-width: 0; font-size: var(--fs-sm); font-weight: 600; }
+/* La cuota es el precio del riesgo: va en grande porque es lo que se compara al elegir. */
+.qn__od {
+  font-family: var(--display); font-weight: 800; font-size: var(--fs-lg);
+  color: var(--clause); flex-shrink: 0;
+}
+
+.qn__done {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.qn__ico { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  flex-shrink: 0; background: var(--surface-2); color: var(--text-3); }
+.qn__done--won { border-color: color-mix(in srgb, var(--pos) 34%, transparent); }
+.qn__done--won .qn__ico { background: var(--pos-soft); color: var(--pos); }
+.qn__done--lost .qn__ico { background: var(--neg-soft); color: var(--neg); }
+.qn__dl { flex: 1; min-width: 0; font-size: var(--fs-sm); }
+.qn__dl small { color: var(--text-3); }
+.qn__dp { font-family: var(--display); font-weight: 800; font-size: var(--fs-lg); flex-shrink: 0; }
+.qn__done--won .qn__dp { color: var(--pos); }
+.qn__done--lost .qn__dp { color: var(--text-3); }
+
+.qn__tabla { display: grid; gap: 1px; background: var(--border);
+  border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+.qn__t { display: flex; align-items: center; gap: 12px; padding: 10px 13px; background: var(--surface); }
+.qn__t.is-me { background: var(--clause-soft); }
+.qn__tp { width: 20px; text-align: center; font-family: var(--display); font-weight: 800;
+  color: var(--text-3); font-variant-numeric: tabular-nums; }
+.qn__tw { flex: 1; min-width: 0; }
+.qn__tw b { display: block; font-size: var(--fs-md); font-weight: 800; }
+.qn__tw small { font-size: var(--fs-xs); color: var(--text-3); }
+.qn__ts { font-family: var(--display); font-weight: 800; font-size: var(--fs-xl);
+  color: var(--clause); }

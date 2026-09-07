@@ -360,6 +360,35 @@ class FantasyBetLeg(SQLModel, table=True):
     result: Optional[float] = None               # lo que hizo de verdad
 
 
+class FantasyQuinielaPick(SQLModel, table=True):
+    """Un pronóstico de la quiniela: gratis, y lo que se gana son puntos, no dinero.
+
+    Las apuestas con dinero llevaban un 8% de margen para la casa, así que de media
+    apostar perdía: la jugada óptima era no jugar, y en 48 mánagers se hizo UNA apuesta en
+    toda la vida de la app. Sin dinero de por medio, participar siempre compensa.
+
+    Lo que hace que haya algo que decidir es que cada acierto vale su cuota: clavar una
+    locura de cuota 6 renta más que cinco cantadas de 1,2. Si todos los aciertos valieran
+    igual, se elegirían siempre los cinco más fáciles y no habría partida.
+    """
+    __tablename__ = "fantasy_quiniela_picks"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
+    member_id: int = Field(foreign_key="fantasy_members.id", index=True)
+    jornada: int = Field(index=True)
+    option_id: Optional[int] = Field(default=None, foreign_key="fantasy_bet_options.id")
+    # se copian al elegir: el menú de una jornada vieja puede desaparecer y el histórico
+    # tiene que seguir contando qué pronosticaste
+    label: str = ""
+    odds: float = 1.0
+    band: str = "normal"
+    status: str = Field(default="pending", index=True)   # pending|won|lost|void
+    points: float = 0.0                                  # la cuota si acierta, 0 si no
+    result: Optional[float] = None                       # lo que hizo de verdad
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class FantasyOffer(SQLModel, table=True):
     """Una oferta por un jugador con dueño.
 

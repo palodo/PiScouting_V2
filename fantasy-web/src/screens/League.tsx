@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Me } from "../App";
 import {
-  IconAlert, IconArrowLeft, IconCalendar, IconCheck, IconCoin, IconCopy, IconLock,
+  IconAlert, IconArrowLeft, IconCalendar, IconCheck, IconCopy, IconLock,
   IconMarket, IconPlay, IconSearch, IconSquad, IconTrophy,
 } from "../icons";
 import { ClauseMeta, Delta, Leyenda, PlayerRow, RestMeta, fp, phaseInfo } from "../parts";
@@ -15,7 +15,7 @@ import {
 } from "../ui";
 import MarketTab from "./Market";
 import DirectoTab from "./Directo";
-import BetsTab from "./Bets";
+import QuinielaTab from "./Quiniela";
 import OffersTab from "./Offers";
 import PlayersTab from "./Players";
 import NotificationBell from "./Notifications";
@@ -25,7 +25,7 @@ import {
   MatchesSheet, OfferSheet, PlayerSheet, ResumenSheet, RestSheet, ScoringSheet,
 } from "./sheets";
 
-type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "apuestas";
+type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "quiniela";
 // La actividad se ha mudado a la campana, junto a los avisos propios: es algo que se lee
 // de vez en cuando, y el sitio lo aprovechan mejor las apuestas, que hay que ir a hacerlas.
 const TABS: [Tab, (p: any) => any, string][] = [
@@ -33,7 +33,7 @@ const TABS: [Tab, (p: any) => any, string][] = [
   ["mercado", IconMarket, "Mercado"],
   ["jugadores", IconSearch, "Jugadores"],
   ["liga", IconTrophy, "Liga"],
-  ["apuestas", IconCoin, "Apuestas"],
+  ["quiniela", IconCheck, "Quiniela"],
 ];
 
 /** Posiciones de los cinco titulares sobre la media pista. */
@@ -96,7 +96,6 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
     loadOffers().catch(() => setOffers({ received: [], sent: [] }));
     if (tab === "mercado") { loadMarket(); loadClauses().catch(() => setClauses({ players: [] })); }
     if (tab === "jugadores" && !players) loadPlayers().catch(() => setPlayers({ players: [] }));
-    if (tab === "apuestas") loadBets().catch(() => setBets({ options: [], my_bets: [] }));
   }, [tab]);
   useEffect(() => {
     if (tab !== "mercado" || !data?.league?.market_open) return;
@@ -289,10 +288,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
             onManager={openManager} onPlayer={openPlayer} />
         )}
 
-        {tab === "apuestas" && (
-          <BetsTab data={bets} busy={busy}
-            onBet={(ids: number[], stake: number) =>
-              act(() => api.placeBet(id, ids, stake), `Apuesta de ${stake} M€ hecha`)} />
+        {tab === "quiniela" && (
+          <QuinielaTab leagueId={id} myMemberId={data.my_member_id} />
         )}
       </main>
 
@@ -409,8 +406,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
               {k === "mercado" && tab !== "mercado" && !enJuego
                 && ((offers?.received?.length ?? 0) > 0 || lg.market_open)
                 && <span className="tab__badge" />}
-              {k === "apuestas" && tab !== "apuestas"
-                && (bets?.my_bets ?? []).some((b: any) => b.status === "pending")
+              {k === "quiniela" && tab !== "quiniela" && ph.phase === "mercado"
                 && <span className="tab__badge" />}
             </button>
             );
