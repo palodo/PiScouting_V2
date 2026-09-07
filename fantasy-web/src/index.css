@@ -1267,3 +1267,58 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .dona__body p {
   margin: 0 0 11px; color: var(--text-2); font-size: var(--fs-md); line-height: 1.6;
 }
+
+/* --------------------------------------------------- cambiar el quinteto */
+/* `touch-action: none` en lo arrastrable no es opcional: sin él, el navegador se queda el
+   gesto para hacer scroll y el jugador nunca se mueve. */
+.lu__court { position: relative; margin: 14px 0 4px; }
+.lu__court svg { width: 100%; display: block; border-radius: var(--r-lg); }
+.lu__slot {
+  position: absolute; transform: translate(-50%, -50%); width: 66px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.lu__slot--free { cursor: pointer; }
+/* Con un jugador cogido, los huecos libres se encienden: dicen dónde se puede soltar. */
+.lu__slot--target .lu__empty {
+  border-color: var(--accent); color: var(--accent);
+  background: var(--accent-soft); transform: scale(1.08);
+}
+.lu__empty {
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
+  border: 1.5px dashed var(--border-2); color: var(--text-3);
+  transition: transform 0.16s var(--ease-out), border-color 0.16s, background-color 0.16s;
+}
+.lu__tok { touch-action: none; cursor: grab; display: grid; place-items: center; gap: 4px; }
+.lu__tok.is-held .photo--tok { box-shadow: 0 0 0 3px var(--accent); }
+.lu__tag {
+  max-width: 66px; padding: 2px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent); border: 1px solid var(--border);
+  font-size: var(--fs-2xs); font-weight: 800; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lu__count { margin: 10px 2px 0; font-size: var(--fs-md); color: var(--text-2); }
+.lu__count b { color: var(--text); font-size: var(--fs-lg); }
+.lu__bench { display: grid; gap: 8px; min-height: 72px; }
+.lu__card {
+  display: flex; align-items: center; gap: 11px; padding: 8px 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+  touch-action: none; cursor: grab;
+}
+.lu__card.is-held { border-color: var(--accent); background: var(--accent-soft); }
+.lu__card--gone .photo { filter: grayscale(1); opacity: 0.6; }
+.lu__card__b { flex: 1; min-width: 0; }
+.lu__card__n {
+  font-size: var(--fs-md); font-weight: 800;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lu__card__t {
+  font-size: var(--fs-xs); color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* El fantasma sigue al dedo. `pointer-events: none` para que elementFromPoint vea lo que
+   hay debajo y no al propio fantasma. */
+.lu__ghost {
+  position: fixed; z-index: 60; pointer-events: none;
+  transform: translate(-50%, -50%) scale(1.12);
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.5));
+}

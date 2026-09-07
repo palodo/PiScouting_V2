@@ -1,15 +1,16 @@
 /* ============================================================================
    Hojas inferiores: ficha del jugador, puja y plantilla de un rival.
    ========================================================================== */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import {
   IconBolt, IconCalendar, IconCheck, IconClock, IconClose, IconCoin, IconCopy, IconGavel,
   IconLock, IconMinus, IconPlus, IconShare, IconSquad, IconWhatsApp,
 } from "../icons";
-import { PfBox, PlayerRow, lockLabel } from "../parts";
+import { PfBox, PlayerRow, fp, lockLabel } from "../parts";
 import {
-  Loading, Photo, Section, Sheet, SheetClose, fmtWhen, fullName, prettyName, prettyTeam,
+  HalfCourt, Loading, Photo, Section, Sheet, SheetClose, fmtWhen, fullName, prettyName,
+  prettyTeam,
 } from "../ui";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
@@ -844,6 +845,173 @@ export function OfferSheet({ p, free, busy, onClose, onSend }: {
         </button>
         <button className="btn btn--quiet btn--block" onClick={onClose}>Cancelar</button>
       </div>
+    </Sheet>
+  );
+}
+
+
+/* ------------------------------------------------------- cambiar el quinteto */
+/* Arrastrar es el gesto que la gente ya trae aprendido de cualquier fantasy, así que la
+   pista es el tablero y el banquillo el cajón. Pero arrastrar en un móvil falla —dedos
+   gordos, scroll que se cuela— así que el toque hace lo mismo: tocas al jugador, tocas el
+   hueco. Ninguna de las dos vías es la "de verdad": las dos lo son. */
+
+const SLOTS = [
+  { left: "50%", top: "80%" }, { left: "17%", top: "63%" }, { left: "83%", top: "63%" },
+  { left: "30%", top: "35%" }, { left: "70%", top: "31%" },
+];
+
+type Hueco = any | null;
+
+export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
+  squad: any[]; lineupSize: number; busy?: boolean;
+  onClose: () => void; onSave: (ids: number[]) => void;
+}) {
+  const [huecos, setHuecos] = useState<Hueco[]>(() => {
+    const t = squad.filter((p) => p.starter).slice(0, lineupSize);
+    return Array.from({ length: lineupSize }, (_, i) => t[i] ?? null);
+  });
+  const [banquillo, setBanquillo] = useState<any[]>(
+    () => squad.filter((p) => !p.starter));
+  const [cogido, setCogido] = useState<any | null>(null);   // seleccionado al toque
+  const [fantasma, setFantasma] = useState<{ p: any; x: number; y: number } | null>(null);
+  const arrastre = useRef<{ p: any; x0: number; y0: number; movido: boolean } | null>(null);
+
+  /* ---- mover una ficha de donde esté al destino pedido ---- */
+  function colocar(p: any, destino: number | "banquillo") {
+    setHuecos((hs) => {
+      const nuevos = [...hs];
+      const desde = nuevos.findIndex((h) => h?.player_id === p.player_id);
+      if (desde >= 0) nuevos[desde] = null;
+
+      setBanquillo((b) => {
+        let resto = b.filter((x) => x.player_id !== p.player_id);
+        if (destino === "banquillo") {
+          if (desde >= 0) resto = [p, ...resto];
+        } else {
+          const desalojado = nuevos[destino];
+          if (desalojado && desalojado.player_id !== p.player_id) resto = [desalojado, ...resto];
+        }
+        return resto;
+      });
+
+      if (destino !== "banquillo") nuevos[destino] = p;
+      return nuevos;
+    });
+    setCogido(null);
+  }
+
+  /* ---- arrastre con puntero: vale para dedo y para ratón ---- */
+  function empezar(e: React.PointerEvent, p: any) {
+    if (busy) return;
+    // Capturar el puntero puede fallar (puntero ya liberado, eventos sintéticos). Si falla,
+    // el arrastre sigue funcionando por los eventos normales: no es motivo para abortar.
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* da igual */ }
+    arrastre.current = { p, x0: e.clientX, y0: e.clientY, movido: false };
+  }
+  function mover(e: React.PointerEvent) {
+    const a = arrastre.current;
+    if (!a) return;
+    const dist = Math.hypot(e.clientX - a.x0, e.clientY - a.y0);
+    if (!a.movido && dist < 7) return;   // por debajo de 7 px sigue siendo un toque
+    a.movido = true;
+    setFantasma({ p: a.p, x: e.clientX, y: e.clientY });
+  }
+  function soltar(e: React.PointerEvent) {
+    const a = arrastre.current;
+    arrastre.current = null;
+    setFantasma(null);
+    if (!a) return;
+    if (!a.movido) { setCogido((c: any) => (c?.player_id === a.p.player_id ? null : a.p)); return; }
+    const bajo = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+    const diana = bajo?.closest("[data-destino]") as HTMLElement | null;
+    if (!diana) return;
+    const d = diana.dataset.destino!;
+    colocar(a.p, d === "banquillo" ? "banquillo" : Number(d));
+  }
+  const gestos = (p: any) => ({
+    onPointerDown: (e: React.PointerEvent) => empezar(e, p),
+    onPointerMove: mover,
+    onPointerUp: soltar,
+    onPointerCancel: () => { arrastre.current = null; setFantasma(null); },
+  });
+
+  const puestos = huecos.filter(Boolean).length;
+  const sinCambios =
+    JSON.stringify(huecos.map((h) => h?.player_id ?? null)) ===
+    JSON.stringify(squad.filter((p) => p.starter).slice(0, lineupSize)
+      .concat(Array(lineupSize).fill(null)).slice(0, lineupSize)
+      .map((h: any) => h?.player_id ?? null));
+
+  return (
+    <Sheet onClose={onClose} title="Cambiar quinteto">
+      <div className="sheet__head">
+        <span className="sheet__ico"><IconSquad size={22} /></span>
+        <div className="sheet__body">
+          <h2>Cambiar quinteto</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            Arrastra a la pista, o toca al jugador y luego el hueco
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      <div className="lu__court">
+        <HalfCourt />
+        {SLOTS.slice(0, lineupSize).map((pos, i) => {
+          const p = huecos[i];
+          const libre = !p;
+          return (
+            <div key={i} data-destino={i} style={pos as any}
+              className={"lu__slot" + (libre ? " lu__slot--free" : "")
+                + (cogido && libre ? " lu__slot--target" : "")}
+              onClick={() => cogido && colocar(cogido, i)}>
+              {p
+                ? <div className={"lu__tok" + (cogido?.player_id === p.player_id ? " is-held" : "")}
+                    {...gestos(p)}>
+                    <Photo code={p.feb_code} name={p.name} variant="tok" />
+                    <span className="lu__tag">{prettyName(p.name).split(" ").slice(-1)[0]}</span>
+                  </div>
+                : <div className="lu__empty"><IconPlus size={17} /></div>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="lu__count">
+        <b className="num">{puestos}</b> de {lineupSize} puestos
+        {puestos < lineupSize && <span> · arrastra {lineupSize - puestos} más</span>}
+      </div>
+
+      <Section right={String(banquillo.length)}>Banquillo</Section>
+      <div className="lu__bench" data-destino="banquillo">
+        {banquillo.length === 0 && <p className="hint">No te queda nadie en el banquillo.</p>}
+        {banquillo.map((p) => (
+          <div key={p.player_id} {...gestos(p)}
+            className={"lu__card" + (cogido?.player_id === p.player_id ? " is-held" : "")
+              + (p.departed ? " lu__card--gone" : "")}>
+            <Photo code={p.feb_code} name={p.name} variant="sm" />
+            <div className="lu__card__b">
+              <div className="lu__card__n">{prettyName(p.name)}</div>
+              <div className="lu__card__t">{prettyTeam(p.team)}</div>
+            </div>
+            <PfBox value={fp(p)} muted={p.departed} />
+          </div>
+        ))}
+      </div>
+
+      <div className="sheet__actions">
+        <button className="btn" disabled={busy || sinCambios}
+          onClick={() => onSave(huecos.filter(Boolean).map((p: any) => p.player_id))}>
+          {busy ? <span className="spinner" /> : sinCambios ? "Sin cambios" : "Guardar quinteto"}
+        </button>
+      </div>
+
+      {fantasma && (
+        <div className="lu__ghost" style={{ left: fantasma.x, top: fantasma.y }}>
+          <Photo code={fantasma.p.feb_code} name={fantasma.p.name} variant="tok" />
+        </div>
+      )}
     </Sheet>
   );
 }

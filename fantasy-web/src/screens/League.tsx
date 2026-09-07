@@ -20,8 +20,8 @@ import PlayersTab from "./Players";
 import NotificationBell from "./Notifications";
 import TableTab from "./Table";
 import {
-  BidSheet, ClauseSheet, InviteSheet, ManagerJornadaSheet, ManagerSheet, MatchesSheet,
-  OfferSheet, PlayerSheet, RestSheet, ScoringSheet,
+  BidSheet, ClauseSheet, InviteSheet, LineupSheet, ManagerJornadaSheet, ManagerSheet,
+  MatchesSheet, OfferSheet, PlayerSheet, RestSheet, ScoringSheet,
 } from "./sheets";
 
 type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "apuestas";
@@ -46,6 +46,7 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 export default function League({ id, me, onBack }: { id: number; me: Me; onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("equipo");
   const [marketView, setMarketView] = useState<"subastas" | "clausulas" | "ofertas">("subastas");
+  const [editandoQuinteto, setEditandoQuinteto] = useState(false);
   const [data, setData] = useState<any>(null);
   const [market, setMarket] = useState<any>(null);
   const [clauses, setClauses] = useState<any>(null);
@@ -162,6 +163,11 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
     } finally { setBusy(false); }
   }
 
+  function guardarQuinteto(ids: number[]) {
+    act(() => api.lineup(id, ids));
+    setEditandoQuinteto(false);
+  }
+
   function toggleStarter(pid: number, isStarter: boolean) {
     const ids = starters.map((p) => p.player_id);
     if (!isStarter && ids.length >= lg.lineup_size) {
@@ -235,7 +241,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           <TeamTab lg={lg} squad={squad} starters={starters} bench={bench} busy={busy}
             ph={ph} left={phaseLeft} onOpen={openPlayer} onToggle={toggleStarter}
             onMatches={openMatches}
-            onScoring={() => setScoring(true)} />
+            onScoring={() => setScoring(true)}
+            onEditLineup={() => setEditandoQuinteto(true)} />
         )}
 
         {tab === "mercado" && (
@@ -346,6 +353,10 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           onPlayer={(pid, j) => { setJornadaFor(null); openPlayer(pid, j); }} />
       )}
 
+      {editandoQuinteto && (
+        <LineupSheet squad={squad} lineupSize={lg.lineup_size} busy={busy}
+          onClose={() => setEditandoQuinteto(false)} onSave={guardarQuinteto} />
+      )}
       {scoring && <ScoringSheet lg={lg} onClose={() => setScoring(false)} />}
 
       {bidFor && (
@@ -379,29 +390,13 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
 }
 
 /* ------------------------------------------------------------------ equipo */
-function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle, onScoring,
-  onMatches }: any) {
+function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onScoring,
+  onMatches, onEditLineup }: any) {
   const gone = squad.filter((p: any) => p.departed);
   const goneStarters = gone.filter((p: any) => p.starter);
   // el que descansa suma cero aunque esté sano: mejor enterarse antes de cerrar el quinteto
   const restStarters = starters.filter((p: any) => p.rests && !p.departed);
   const canLineup = (lg.can_lineup ?? true) as boolean;
-
-  // Una estrella se lee como "favorito", no como "titular", y por eso nadie entendía qué
-  // hacía. Un botón que dice la acción con todas las letras no necesita explicación.
-  const LineupBtn = ({ p }: { p: any }) => {
-    const lleno = !p.starter && starters.length >= lg.lineup_size;
-    return (
-      <button className={"btn btn--sm" + (p.starter ? " btn--quiet" : "")}
-        disabled={busy || p.departed || !canLineup || lleno}
-        title={!canLineup ? "El quinteto está cerrado"
-          : p.departed ? "Ya no puntúa en esta conferencia"
-            : lleno ? `Ya tienes ${lg.lineup_size} titulares` : undefined}
-        onClick={(e) => { e.stopPropagation(); onToggle(p.player_id, p.starter); }}>
-        {p.starter ? "Sacar" : "Alinear"}
-      </button>
-    );
-  };
 
   return (
     <>
@@ -477,17 +472,21 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
         </div>
       )}
 
+      <button className="btn btn--block" disabled={busy || !canLineup} onClick={onEditLineup}
+        style={{ marginTop: 12 }}>
+        {canLineup ? "Cambiar quinteto" : "Quinteto cerrado"}
+      </button>
+
       <Section right={`${starters.length}/${lg.lineup_size}`}>Quinteto titular</Section>
       {starters.length === 0 && (
         <Empty icon={<IconSquad size={22} />} title="No has alineado a nadie">
-          Pulsa «Alinear» en {lg.lineup_size} jugadores de tu banquillo.
+          Pulsa «Cambiar quinteto» y arrastra {lg.lineup_size} jugadores a la pista.
         </Empty>
       )}
       {starters.map((p: any) => (
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : "starter"}
-          meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>}
-          right={<LineupBtn p={p} />} />
+          meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>} />
       ))}
 
       <Section right={String(bench.length)}>Banquillo</Section>
@@ -499,8 +498,7 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onToggle,
       {bench.map((p: any) => (
         <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
           tone={p.departed ? "gone" : undefined}
-          meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>}
-          right={<LineupBtn p={p} />} />
+          meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>} />
       ))}
 
       <button className="linkbtn" style={{ margin: "18px auto 0" }} onClick={onScoring}>
