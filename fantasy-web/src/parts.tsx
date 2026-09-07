@@ -151,8 +151,13 @@ export function PlayerRow({ p, onOpen, right, tone, meta, hero, hidePrice, pf: p
 export function ClauseMeta({ p }: { p: RowPlayer }) {
   if (p.clause == null) return null;
   return (
-    <span className="prow__clause">
+    <span className="prow__clause"
+      title={p.clause_locked
+        ? "Cláusula de rescisión, bloqueada por ser un fichaje reciente"
+        : "Cláusula de rescisión: lo que otro mánager tiene que pagarte por él"}>
       {p.clause_locked ? <IconLock size={11} strokeWidth={2.4} /> : <IconBolt size={11} strokeWidth={2.4} />}
+      {/* El icono solo no dice "cláusula": ni el que programó esto lo reconocía. */}
+      <span className="prow__clause__k">cláusula</span>
       {p.clause}
     </span>
   );

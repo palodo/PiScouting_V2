@@ -1322,3 +1322,7 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
   transform: translate(-50%, -50%) scale(1.12);
   filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.5));
 }
+
+/* La cláusula era un rayo morado y un número, y nadie sabía qué era. La palabra va
+   delante, en peso normal, para que el número siga siendo lo que destaca. */
+.prow__clause__k { font-weight: 500; opacity: 0.75; }

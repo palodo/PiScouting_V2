@@ -882,7 +882,6 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
   const { huecos, banquillo } = reparto;
   const [cogido, setCogido] = useState<any | null>(null);   // seleccionado al toque
   const [fantasma, setFantasma] = useState<{ p: any; x: number; y: number } | null>(null);
-  const arrastre = useRef<{ p: any; x0: number; y0: number; movido: boolean } | null>(null);
 
   /* ---- mover una ficha de donde esté al destino pedido ---- */
   function colocar(p: any, destino: number | "banquillo") {
@@ -907,54 +906,83 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
     setCogido(null);
   }
 
-  /* ---- arrastre con puntero: vale para dedo y para ratón ---- */
-  function empezar(e: React.PointerEvent, p: any) {
-    if (busy) return;
-    // Capturar el puntero puede fallar (puntero ya liberado, eventos sintéticos). Si falla,
-    // el arrastre sigue funcionando por los eventos normales: no es motivo para abortar.
-    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* da igual */ }
-    arrastre.current = { p, x0: e.clientX, y0: e.clientY, movido: false };
-  }
-  function mover(e: React.PointerEvent) {
-    const a = arrastre.current;
-    if (!a) return;
-    const dist = Math.hypot(e.clientX - a.x0, e.clientY - a.y0);
-    if (!a.movido && dist < 12) return;  // un dedo nunca está quieto: por debajo de 12 px
-                                         // sigue siendo un toque, no un arrastre
-    a.movido = true;
-    setFantasma({ p: a.p, x: e.clientX, y: e.clientY });
-  }
-  function soltar(e: React.PointerEvent) {
-    const a = arrastre.current;
-    arrastre.current = null;
-    setFantasma(null);
-    if (!a) return;
-    const bajo = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-    const diana = bajo?.closest("[data-destino]") as HTMLElement | null;
-    const d = diana?.dataset.destino;
-    const destino: number | "banquillo" | null =
-      d == null ? null : d === "banquillo" ? "banquillo" : Number(d);
+  /* ---- gestos ----------------------------------------------------------------
+     Sin `setPointerCapture` y sin depender de `click`. La captura redirige los eventos
+     siguientes al elemento capturado, así que el segundo toque —el del hueco— le llegaba
+     a la ficha del jugador y no al hueco. Y el `click` de un táctil se pierde en cuanto el
+     dedo se desplaza un poco. Aquí todo sale de `pointerdown` + `pointerup` en window, que
+     es lo único que un móvil entrega siempre.                                          */
+  const [gesto, setGesto] = useState<
+    { tipo: "jugador"; p: any; x0: number; y0: number }
+    | { tipo: "hueco"; i: number; x0: number; y0: number } | null>(null);
+  const movido = useRef(false);
 
-    // ¿Ha acabado donde ya estaba? Entonces no fue un arrastre por mucho que el dedo se
-    // moviera: fue un toque con pulso, y un toque selecciona. Sin esto, tocar a un jugador
-    // del banquillo se resolvía como "suéltalo en el banquillo" —donde ya estaba— y parecía
-    // que la app no hacía nada.
-    const sitioActual: number | "banquillo" =
-      huecos.findIndex((h) => h?.player_id === a.p.player_id) >= 0
-        ? huecos.findIndex((h) => h?.player_id === a.p.player_id) : "banquillo";
+  useEffect(() => {
+    if (!gesto) return;
 
-    if (!a.movido || destino === sitioActual) {
-      setCogido((c: any) => (c?.player_id === a.p.player_id ? null : a.p));
-      return;
-    }
-    if (destino === null) return;   // soltado fuera: se queda como estaba
-    colocar(a.p, destino);
-  }
-  const gestos = (p: any) => ({
-    onPointerDown: (e: React.PointerEvent) => empezar(e, p),
-    onPointerMove: mover,
-    onPointerUp: soltar,
-    onPointerCancel: () => { arrastre.current = null; setFantasma(null); },
+    const alMover = (e: PointerEvent) => {
+      if (!movido.current && Math.hypot(e.clientX - gesto.x0, e.clientY - gesto.y0) < 12) return;
+      movido.current = true;
+      if (gesto.tipo === "jugador") setFantasma({ p: gesto.p, x: e.clientX, y: e.clientY });
+    };
+
+    const alSoltar = (e: PointerEvent) => {
+      const arrastrado = movido.current;
+      const bajo = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      const diana = bajo?.closest("[data-destino]") as HTMLElement | null;
+      const d = diana?.dataset.destino;
+      const destino: number | "banquillo" | null =
+        d == null ? null : d === "banquillo" ? "banquillo" : Number(d);
+
+      if (gesto.tipo === "hueco") {
+        // Un hueco vacío no hace nada por sí solo; solo recibe al que llevas cogido.
+        if (cogido) colocar(cogido, gesto.i);
+      } else {
+        const p = gesto.p;
+        const enPista = huecos.findIndex((h: any) => h?.player_id === p.player_id);
+        const suSitio: number | "banquillo" = enPista >= 0 ? enPista : "banquillo";
+
+        if (arrastrado && destino !== null && destino !== suSitio) {
+          colocar(p, destino);                       // arrastre de verdad
+        } else if (cogido && cogido.player_id !== p.player_id) {
+          // Llevas a uno cogido y tocas a otro: se cambian el sitio.
+          colocar(cogido, suSitio);
+        } else {
+          setCogido((c: any) => (c?.player_id === p.player_id ? null : p));
+        }
+      }
+
+      movido.current = false;
+      setGesto(null);
+      setFantasma(null);
+    };
+
+    const alCancelar = () => { movido.current = false; setGesto(null); setFantasma(null); };
+
+    window.addEventListener("pointermove", alMover);
+    window.addEventListener("pointerup", alSoltar);
+    window.addEventListener("pointercancel", alCancelar);
+    return () => {
+      window.removeEventListener("pointermove", alMover);
+      window.removeEventListener("pointerup", alSoltar);
+      window.removeEventListener("pointercancel", alCancelar);
+    };
+  }, [gesto, cogido, reparto]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cogerJugador = (p: any) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (busy) return;
+      e.stopPropagation();      // que no lo tome también el hueco de debajo
+      movido.current = false;
+      setGesto({ tipo: "jugador", p, x0: e.clientX, y0: e.clientY });
+    },
+  });
+  const cogerHueco = (i: number) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (busy) return;
+      movido.current = false;
+      setGesto({ tipo: "hueco", i, x0: e.clientX, y0: e.clientY });
+    },
   });
 
   const puestos = huecos.filter(Boolean).length;
@@ -982,13 +1010,12 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
           const p = huecos[i];
           const libre = !p;
           return (
-            <div key={i} data-destino={i} style={pos as any}
+            <div key={i} data-destino={i} style={pos as any} {...cogerHueco(i)}
               className={"lu__slot" + (libre ? " lu__slot--free" : "")
-                + (cogido && libre ? " lu__slot--target" : "")}
-              onClick={() => cogido && colocar(cogido, i)}>
+                + (cogido && libre ? " lu__slot--target" : "")}>
               {p
                 ? <div className={"lu__tok" + (cogido?.player_id === p.player_id ? " is-held" : "")}
-                    {...gestos(p)}>
+                    {...cogerJugador(p)}>
                     <Photo code={p.feb_code} name={p.name} variant="tok" />
                     <span className="lu__tag">{prettyName(p.name).split(" ").slice(-1)[0]}</span>
                   </div>
@@ -1007,7 +1034,7 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
       <div className="lu__bench" data-destino="banquillo">
         {banquillo.length === 0 && <p className="hint">No te queda nadie en el banquillo.</p>}
         {banquillo.map((p) => (
-          <div key={p.player_id} {...gestos(p)}
+          <div key={p.player_id} {...cogerJugador(p)}
             className={"lu__card" + (cogido?.player_id === p.player_id ? " is-held" : "")
               + (p.departed ? " lu__card--gone" : "")}>
             <Photo code={p.feb_code} name={p.name} variant="sm" />
