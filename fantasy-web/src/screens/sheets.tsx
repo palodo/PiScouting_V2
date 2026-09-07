@@ -867,36 +867,42 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
   squad: any[]; lineupSize: number; busy?: boolean;
   onClose: () => void; onSave: (ids: number[]) => void;
 }) {
-  const [huecos, setHuecos] = useState<Hueco[]>(() => {
-    const t = squad.filter((p) => p.starter).slice(0, lineupSize);
-    return Array.from({ length: lineupSize }, (_, i) => t[i] ?? null);
-  });
-  const [banquillo, setBanquillo] = useState<any[]>(
-    () => squad.filter((p) => !p.starter));
+  // Pista y banquillo son un solo reparto, y por eso viven en un solo estado. Tenerlos en
+  // dos `useState` obligaba a actualizar uno dentro del updater del otro, y eso React no lo
+  // admite: el updater tiene que ser puro. En StrictMode corre dos veces y el resultado era
+  // que el jugador desalojado no bajaba al banquillo, o se perdía por el camino.
+  const inicial = () => {
+    const t = squad.filter((p: any) => p.starter).slice(0, lineupSize);
+    return {
+      huecos: Array.from({ length: lineupSize }, (_, i) => t[i] ?? null) as Hueco[],
+      banquillo: squad.filter((p: any) => !p.starter) as any[],
+    };
+  };
+  const [reparto, setReparto] = useState(inicial);
+  const { huecos, banquillo } = reparto;
   const [cogido, setCogido] = useState<any | null>(null);   // seleccionado al toque
   const [fantasma, setFantasma] = useState<{ p: any; x: number; y: number } | null>(null);
   const arrastre = useRef<{ p: any; x0: number; y0: number; movido: boolean } | null>(null);
 
   /* ---- mover una ficha de donde esté al destino pedido ---- */
   function colocar(p: any, destino: number | "banquillo") {
-    setHuecos((hs) => {
-      const nuevos = [...hs];
-      const desde = nuevos.findIndex((h) => h?.player_id === p.player_id);
-      if (desde >= 0) nuevos[desde] = null;
+    setReparto(({ huecos: hs, banquillo: bq }) => {
+      const h = [...hs];
+      // Se le saca de donde estuviera, sea la pista o el banquillo...
+      const desde = h.findIndex((x) => x?.player_id === p.player_id);
+      if (desde >= 0) h[desde] = null;
+      let b = bq.filter((x: any) => x.player_id !== p.player_id);
 
-      setBanquillo((b) => {
-        let resto = b.filter((x) => x.player_id !== p.player_id);
-        if (destino === "banquillo") {
-          if (desde >= 0) resto = [p, ...resto];
-        } else {
-          const desalojado = nuevos[destino];
-          if (desalojado && desalojado.player_id !== p.player_id) resto = [desalojado, ...resto];
-        }
-        return resto;
-      });
-
-      if (destino !== "banquillo") nuevos[destino] = p;
-      return nuevos;
+      if (destino === "banquillo") {
+        b = [p, ...b];
+      } else {
+        // ...y si el hueco estaba ocupado, el que sale baja al banquillo. Nadie se evapora:
+        // cada jugador está siempre o en la pista o en el banquillo.
+        const desalojado = h[destino];
+        if (desalojado) b = [desalojado, ...b];
+        h[destino] = p;
+      }
+      return { huecos: h, banquillo: b };
     });
     setCogido(null);
   }
@@ -937,11 +943,10 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
   });
 
   const puestos = huecos.filter(Boolean).length;
-  const sinCambios =
-    JSON.stringify(huecos.map((h) => h?.player_id ?? null)) ===
-    JSON.stringify(squad.filter((p) => p.starter).slice(0, lineupSize)
-      .concat(Array(lineupSize).fill(null)).slice(0, lineupSize)
-      .map((h: any) => h?.player_id ?? null));
+  const idsAhora = huecos.filter(Boolean).map((h: any) => h.player_id).sort().join(",");
+  const idsAlAbrir = squad.filter((p: any) => p.starter).map((p: any) => p.player_id)
+    .sort().join(",");
+  const sinCambios = idsAhora === idsAlAbrir;
 
   return (
     <Sheet onClose={onClose} title="Cambiar quinteto">
