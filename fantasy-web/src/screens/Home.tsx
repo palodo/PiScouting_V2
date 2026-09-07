@@ -10,11 +10,10 @@ import { IconBell, IconHeart } from "../icons";
 
 const DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
-/** Formulario de donación de Ko-fi (no se lleva comisión; solo la pasarela de pago).
- *  Los parámetros NO sobran: `ko-fi.com/pifantasy` a secas abre el perfil, y desde ahí
- *  todavía hay que pulsar «Tip» para que salga el formulario. Esta variante entra directa
- *  al importe y al botón de pagar, que es un clic menos justo donde más se abandona. */
-const KOFI = "https://ko-fi.com/pifantasy/?hidefeed=true&widget=true&embed=true&preview=true";
+/** Enlace de pago de Stripe. Sustituye a Ko-fi: aquel era un intermediario y aún había que
+ *  pasar por su perfil y luego por la pasarela; este enlace ES la pasarela, en español, con
+ *  el importe abierto y Apple/Google Pay a un toque. Comisión más baja, además. */
+const DONAR = "https://buy.stripe.com/00wcN62h3b34ft4elz2go01";
 
 const monogram = (s: string) =>
   s.trim().split(/\s+/).filter((w) => w.length > 2).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
@@ -469,7 +468,7 @@ function Apoyar() {
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ color: "var(--accent)" }}><IconHeart size={19} /></span>
         <span className="field__label" style={{ flex: 1, margin: 0 }}>Apoya PiFantasy</span>
-        <a className="btn btn--sm btn--quiet" href={KOFI} target="_blank" rel="noopener noreferrer">
+        <a className="btn btn--sm btn--quiet" href={DONAR} target="_blank" rel="noopener noreferrer">
           Invitar a un café
         </a>
       </div>
@@ -559,7 +558,7 @@ function RecordatorioDonacion({ me }: { me: Me }) {
       </div>
 
       <div className="sheet__actions">
-        <a className="btn" href={KOFI} target="_blank" rel="noopener noreferrer" onClick={cerrar}>
+        <a className="btn" href={DONAR} target="_blank" rel="noopener noreferrer" onClick={cerrar}>
           Invitar a un café
         </a>
         <button className="btn btn--ghost" onClick={cerrar}>En otro momento</button>
