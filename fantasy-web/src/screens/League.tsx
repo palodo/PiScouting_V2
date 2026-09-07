@@ -260,7 +260,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         )}
 
         {tab === "jugadores" && (
-          <PlayersTab data={players} onOpen={(pid: number) => openPlayer(pid)} />
+          <PlayersTab data={players} liga={data} onManager={openManager}
+            onOpen={(pid: number) => openPlayer(pid)} />
         )}
 
         {tab === "liga" && (

@@ -5,21 +5,26 @@
    el orden por defecto es el que decide la liga: puntos fantasy.
    ========================================================================== */
 import { useMemo, useState } from "react";
-import { IconClose, IconSearch, IconSquad } from "../icons";
+import { IconChevronRight, IconClose, IconSearch, IconSquad } from "../icons";
 import { PlayerRow, fp } from "../parts";
 import { Empty, Segmented, SkeletonList } from "../ui";
 
-type Orden = "pf" | "precio" | "forma";
+/* Dos de las vistas ordenan jugadores y la tercera cambia de sujeto: enseña a los
+   mánagers. Están juntas porque responden a la misma pregunta —"¿quién tiene qué?"— y
+   este es el sitio al que se viene a mirar antes de pujar o clausular. */
+type Vista = "pf" | "precio" | "managers";
 type Filtro = "todos" | "libres" | "mios";
 
-const ORDENES: Record<Orden, (a: any, b: any) => number> = {
+const ORDENES: Record<"pf" | "precio", (a: any, b: any) => number> = {
   pf: (a, b) => fp(b) - fp(a),
   precio: (a, b) => b.price - a.price,
-  forma: (a, b) => (b.fp_form ?? 0) - (a.fp_form ?? 0),
 };
 
-export default function PlayersTab({ data, onOpen }: { data: any; onOpen: (id: number) => void }) {
-  const [orden, setOrden] = useState<Orden>("pf");
+export default function PlayersTab({ data, liga, onOpen, onManager }: {
+  data: any; liga: any; onOpen: (id: number) => void;
+  onManager: (r: { member_id: number; manager: string }) => void;
+}) {
+  const [vista, setVista] = useState<Vista>("pf");
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [q, setQ] = useState("");
 
@@ -33,8 +38,14 @@ export default function PlayersTab({ data, onOpen }: { data: any; onOpen: (id: n
         if (aguja && !`${p.name} ${p.team} ${p.owner ?? ""}`.toLowerCase().includes(aguja)) return false;
         return true;
       })
-      .sort(ORDENES[orden]);
-  }, [data, orden, filtro, q]);
+      .sort(ORDENES[vista === "managers" ? "pf" : vista]);
+  }, [data, vista, filtro, q]);
+
+  const managers = useMemo(() => {
+    const aguja = q.trim().toLowerCase();
+    return (liga?.standings ?? []).filter((r: any) =>
+      !aguja || String(r.manager).toLowerCase().includes(aguja));
+  }, [liga, q]);
 
   if (!data) return <SkeletonList n={8} />;
 
@@ -50,22 +61,45 @@ export default function PlayersTab({ data, onOpen }: { data: any; onOpen: (id: n
           <IconClose size={16} /></button>}
       </div>
 
-      <Segmented<Orden> value={orden} onChange={setOrden} options={[
+      <Segmented<Vista> value={vista} onChange={setVista} options={[
         { v: "pf", label: "Puntos" },
-        { v: "forma", label: "Forma" },
         { v: "precio", label: "Valor" },
+        { v: "managers", label: "Mánagers" },
       ]} />
 
-      <div className="filters" style={{ marginTop: 10 }}>
+      {vista !== "managers" && <div className="filters" style={{ marginTop: 10 }}>
         {([["todos", `Todos · ${data.players?.length ?? 0}`],
            ["libres", `Sin dueño · ${libres}`],
            ["mios", "Míos"]] as [Filtro, string][]).map(([v, label]) => (
           <button key={v} className={"filter" + (filtro === v ? " is-on" : "")}
             onClick={() => setFiltro(v)}>{label}</button>
         ))}
-      </div>
+      </div>}
 
-      {lista.length === 0
+      {vista === "managers" ? (
+        managers.length === 0
+          ? <Empty icon={<IconSquad size={22} />} title="Ningún mánager con ese nombre" />
+          : <>
+              <div className="list" style={{ marginTop: 10 }}>
+                {managers.map((r: any) => (
+                  <button key={r.member_id}
+                    className={"lrow lrow--tap" + (r.member_id === liga?.my_member_id ? " is-me" : "")}
+                    onClick={() => onManager({ member_id: r.member_id, manager: r.manager })}>
+                    <span className="lrow__pos">{r.rank}</span>
+                    <span className="lrow__who">
+                      <b>{r.manager}</b>
+                      <small>{r.squad_count} jugadores · {r.squad_value} M€</small>
+                    </span>
+                    <span className="lrow__pts num">{r.total_points}</span>
+                    <IconChevronRight size={15} />
+                  </button>
+                ))}
+              </div>
+              <p className="hint" style={{ marginTop: 12 }}>
+                Toca a un mánager para ver su plantilla y sus cláusulas.
+              </p>
+            </>
+      ) : lista.length === 0
         ? <Empty icon={<IconSquad size={22} />} title="Ningún jugador con esos filtros" />
         : lista.slice(0, 120).map((p: any, i: number) => (
           <PlayerRow key={p.player_id} p={p} onOpen={() => onOpen(p.player_id)}
@@ -78,7 +112,7 @@ export default function PlayersTab({ data, onOpen }: { data: any; onOpen: (id: n
             </>} />
         ))}
 
-      {lista.length > 120 && (
+      {vista !== "managers" && lista.length > 120 && (
         <p className="hint" style={{ marginTop: 12 }}>
           Se muestran los 120 primeros de {lista.length}. Afina con el buscador.
         </p>
