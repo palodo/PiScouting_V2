@@ -66,10 +66,7 @@ export default function Home({ me, onOpen, onLogout, invitacion, onInvitacionUsa
                   <span className="mono">{monogram(l.name)}</span>
                   <span className="leaguecard__id">
                     <b>{l.name}</b>
-                    <span>
-                      <b className="lg__comp">{l.competition}</b>
-                      {l.grupo && <span className="lg__grupo">{l.grupo}</span>}
-                    </span>
+                    <span>{l.competition}{l.grupo ? ` · ${l.grupo}` : ""}</span>
                   </span>
                   {l.market_open
                     ? <span className="badge badge--live"><span className="livedot" />Mercado</span>

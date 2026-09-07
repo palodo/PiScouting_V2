@@ -50,7 +50,7 @@ export function phaseInfo(lg: any) {
   if (phase === "jornada") {
     const pend: string[] = lg?.pending_matches ?? [];
     return {
-      phase, j, chip: `J${j} en juego`, title: `Jornada ${j} en juego, acaba en`,
+      phase, j, chip: `J${j} en juego`, title: `Jornada ${j} en juego · acaba en`,
       until: lg?.jornada_ends_at ?? null, live: true,
       note: pend.length
         ? `Falta por disputarse ${pend[0]}${pend.length > 1 ? ` y ${pend.length - 1} más` : ""}.`
@@ -59,14 +59,14 @@ export function phaseInfo(lg: any) {
   }
   if (phase === "alineacion") {
     return {
-      phase, j, chip: "Último cambio", title: `La jornada ${j} empieza en`,
+      phase, j, chip: "Último cambio", title: `Jornada ${j} · empieza en`,
       until: lg?.kickoff_at ?? null, live: false,
       note: "Mercado cerrado. Puedes cambiar el quinteto hasta el primer partido.",
     };
   }
   return {
     phase, j, chip: lg?.market_open ? "Mercado" : "Mercado cerrado",
-    title: lg?.market_open ? "Mercado abierto, tanda nueva en" : "El mercado abre en",
+    title: lg?.market_open ? "Mercado abierto · tanda nueva en" : "Mercado · abre en",
     until: lg?.market_open ? (lg?.market_closes_at ?? null) : (lg?.market_opens_at ?? null),
     live: Boolean(lg?.market_open),
     // el día y la hora concretos: "hasta 24 h antes" obliga a hacer la cuenta
