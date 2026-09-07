@@ -723,7 +723,10 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
             # Lo primero al saltar: dejar por escrito con qué quinteto entra cada uno.
             freeze_lineups(session, league, state["jornada"])
             # Jugada entera (y sin aplazamientos pendientes): se puntúa sola.
-            if now >= state["ends_at"] and not state["pending"] and advance(session, league).get("ok"):
+            # En simulación por pasos no hay reloj (`ends_at` es None): la jornada
+            # la cierra el dueño con el tercer paso, aquí no se avanza sola.
+            if state["ends_at"] is not None and now >= state["ends_at"] \
+                    and not state["pending"] and advance(session, league).get("ok"):
                 changed = True
                 continue
             break
@@ -742,8 +745,10 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
                                            or now >= league.market_opens_at):
                 # Una tanda de diez minutos no la juega nadie: si ya no cabe antes del
                 # corte, se espera a la ventana de mercado de la jornada siguiente.
-                if state["market_deadline"] - now >= timedelta(hours=1) \
-                        and _open_round(session, league, now, state["market_deadline"]):
+                # Sin corte de mercado (simulación por pasos) siempre cabe otra tanda.
+                corte = state["market_deadline"]
+                if (corte is None or corte - now >= timedelta(hours=1)) \
+                        and _open_round(session, league, now, corte):
                     changed = True
                     continue
                 league.market_opens_at = (_next_slot(state["ends_at"], league.market_weekday,
