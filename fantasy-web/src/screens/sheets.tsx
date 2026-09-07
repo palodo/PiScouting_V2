@@ -919,7 +919,8 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
     const a = arrastre.current;
     if (!a) return;
     const dist = Math.hypot(e.clientX - a.x0, e.clientY - a.y0);
-    if (!a.movido && dist < 7) return;   // por debajo de 7 px sigue siendo un toque
+    if (!a.movido && dist < 12) return;  // un dedo nunca está quieto: por debajo de 12 px
+                                         // sigue siendo un toque, no un arrastre
     a.movido = true;
     setFantasma({ p: a.p, x: e.clientX, y: e.clientY });
   }
@@ -928,12 +929,26 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
     arrastre.current = null;
     setFantasma(null);
     if (!a) return;
-    if (!a.movido) { setCogido((c: any) => (c?.player_id === a.p.player_id ? null : a.p)); return; }
     const bajo = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
     const diana = bajo?.closest("[data-destino]") as HTMLElement | null;
-    if (!diana) return;
-    const d = diana.dataset.destino!;
-    colocar(a.p, d === "banquillo" ? "banquillo" : Number(d));
+    const d = diana?.dataset.destino;
+    const destino: number | "banquillo" | null =
+      d == null ? null : d === "banquillo" ? "banquillo" : Number(d);
+
+    // ¿Ha acabado donde ya estaba? Entonces no fue un arrastre por mucho que el dedo se
+    // moviera: fue un toque con pulso, y un toque selecciona. Sin esto, tocar a un jugador
+    // del banquillo se resolvía como "suéltalo en el banquillo" —donde ya estaba— y parecía
+    // que la app no hacía nada.
+    const sitioActual: number | "banquillo" =
+      huecos.findIndex((h) => h?.player_id === a.p.player_id) >= 0
+        ? huecos.findIndex((h) => h?.player_id === a.p.player_id) : "banquillo";
+
+    if (!a.movido || destino === sitioActual) {
+      setCogido((c: any) => (c?.player_id === a.p.player_id ? null : a.p));
+      return;
+    }
+    if (destino === null) return;   // soltado fuera: se queda como estaba
+    colocar(a.p, destino);
   }
   const gestos = (p: any) => ({
     onPointerDown: (e: React.PointerEvent) => empezar(e, p),
