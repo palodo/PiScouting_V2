@@ -10,8 +10,11 @@ import { IconBell, IconHeart } from "../icons";
 
 const DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
-/** Página de donaciones. Ko-fi no se lleva comisión; solo la pasarela de pago. */
-const KOFI = "https://ko-fi.com/pifantasy";
+/** Formulario de donación de Ko-fi (no se lleva comisión; solo la pasarela de pago).
+ *  Los parámetros NO sobran: `ko-fi.com/pifantasy` a secas abre el perfil, y desde ahí
+ *  todavía hay que pulsar «Tip» para que salga el formulario. Esta variante entra directa
+ *  al importe y al botón de pagar, que es un clic menos justo donde más se abandona. */
+const KOFI = "https://ko-fi.com/pifantasy/?hidefeed=true&widget=true&embed=true&preview=true";
 
 const monogram = (s: string) =>
   s.trim().split(/\s+/).filter((w) => w.length > 2).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
