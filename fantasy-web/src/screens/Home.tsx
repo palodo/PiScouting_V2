@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { Me } from "../App";
 import { IconAlert, IconArrowLeft, IconLogout, IconTrophy } from "../icons";
 import { phaseInfo } from "../parts";
-import { Brand, Empty, Segmented, Sheet, SheetClose, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
+import { Ball, Brand, Empty, Segmented, Sheet, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
 import NotificationBell from "./Notifications";
 import { activarPush, desactivarPush, estadoPush, type PushState } from "../push";
 import { IconBell, IconHeart } from "../icons";
@@ -528,35 +528,33 @@ function RecordatorioDonacion({ me }: { me: Me }) {
   const yaColabore = () => { guardarDona({ ...leerDona(), colaborado: true }); cerrar(); };
 
   return (
-    <Sheet onClose={cerrar} title="Apoya PiFantasy">
-      <div className="sheet__head">
-        <span className="sheet__ico" style={{ color: "var(--accent)" }}><IconHeart size={22} /></span>
-        <div className="sheet__body">
-          <h2>El servidor lo pago yo</h2>
-          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
-            PiFantasy seguirá siendo gratis y sin anuncios
-          </div>
-        </div>
-        <SheetClose onClose={cerrar} />
+    <Sheet onClose={cerrar} title="Un café para PiFantasy">
+      <div className="dona__hero">
+        <span className="dona__mark">
+          <Ball size={58} />
+          <span className="dona__heart"><IconHeart size={14} /></span>
+        </span>
+        <h2>Un café para PiFantasy</h2>
+        <p>Sin anuncios ni empresas detrás</p>
       </div>
 
-      <p className="hint" style={{ marginTop: 14 }}>
-        Aquí nadie tiene ventaja por pagar, y no la va a tener. Lo único que cuesta dinero
-        es el servidor donde vive todo esto, y lo pongo yo.
-      </p>
-      <p className="hint" style={{ marginTop: 8 }}>
-        Si te está alegrando la temporada y te apetece echar una mano, se agradece. Y si no,
-        tranquilo: cierras esto y no vuelvo a preguntarte en dos semanas.
-      </p>
+      <div className="dona__body">
+        <p>
+          Esto lo lleva una persona, con el servidor pagado de su bolsillo. Si la liga te
+          está alegrando la temporada, un café ayuda a que siga en pie.
+        </p>
+        <p>
+          Y si ahora no te viene bien, cierras y ya está: el juego es exactamente el mismo.
+          Vuelvo a asomarme dentro de un par de semanas.
+        </p>
+      </div>
 
       <div className="sheet__actions">
         <a className="btn" href={KOFI} target="_blank" rel="noopener noreferrer" onClick={cerrar}>
           Invitar a un café
         </a>
-        <button className="btn btn--ghost" onClick={cerrar}>Ahora no</button>
-        <button className="btn btn--quiet btn--sm" onClick={yaColabore}>
-          Ya he colaborado, no preguntes más
-        </button>
+        <button className="btn btn--ghost" onClick={cerrar}>En otro momento</button>
+        <button className="btn btn--quiet btn--sm" onClick={yaColabore}>Ya he colaborado</button>
       </div>
     </Sheet>
   );

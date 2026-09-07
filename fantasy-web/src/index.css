@@ -1236,3 +1236,31 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 .leg--won { color: var(--pos); }
 .leg--lost { color: var(--neg); }
 .leg--void { color: var(--text-3); text-decoration: line-through; }
+
+/* ------------------------------------------------------------------ donación */
+/* Cabecera cálida de la hoja de donación. Va a sangre contra los bordes de la hoja
+   (de ahí el margen negativo, que compensa el padding de .sheet) para que se lea como
+   una portada y no como un aviso más. El degradado usa el naranja de marca muy diluido:
+   la idea es que dé las gracias, no que grite. */
+.dona__hero {
+  margin: -6px -16px 0; padding: 26px 20px 22px; text-align: center;
+  background:
+    radial-gradient(88% 130% at 50% -10%, var(--accent-soft), transparent 68%),
+    linear-gradient(to bottom, color-mix(in srgb, var(--accent) 7%, transparent), transparent);
+  border-bottom: 1px solid var(--border);
+}
+.dona__mark { position: relative; display: inline-grid; place-items: center; }
+/* el corazón cuelga del balón, para que la marca se lea antes que el gesto */
+.dona__heart {
+  position: absolute; right: -8px; bottom: -4px;
+  display: grid; place-items: center; width: 27px; height: 27px; border-radius: 50%;
+  background: var(--surface-3); border: 1px solid var(--accent-line); color: var(--accent);
+}
+.dona__hero h2 { margin: 14px 0 0; font-size: var(--fs-xl); line-height: 1.25; }
+.dona__hero > p {
+  margin: 7px auto 0; max-width: 32ch; color: var(--text-2); font-size: var(--fs-md);
+}
+.dona__body { padding: 16px 2px 0; }
+.dona__body p {
+  margin: 0 0 11px; color: var(--text-2); font-size: var(--fs-md); line-height: 1.6;
+}
