@@ -114,18 +114,28 @@ def _sweep(engine) -> int:
     from datetime import datetime, timedelta
 
     from .models import FantasyNotification, FantasyMember
+    from sqlalchemy import text
+
     with Session(engine) as session:
         corte = datetime.utcnow() - timedelta(minutes=MAX_AGE_MIN)
-        pend = session.exec(select(FantasyNotification).where(
-            FantasyNotification.pushed == False).order_by(  # noqa: E712
-            FantasyNotification.id).limit(100)).all()
-        if not pend:
+        # Se RECLAMAN en una sola sentencia, marcándolos y quedándose con sus ids a la vez.
+        # Antes se leían y luego se marcaban, en dos pasos: con el servidor en un solo
+        # proceso daba igual, pero con varios los dos barredores leían los mismos avisos
+        # pendientes y cada uno lo mandaba, así que llegaban por duplicado. SQLite serializa
+        # las escrituras, así que el segundo encuentra el cupo ya marcado y se va de vacío.
+        ids = [r[0] for r in session.exec(text(
+            "UPDATE fantasy_notifications SET pushed = 1 "
+            "WHERE id IN (SELECT id FROM fantasy_notifications "
+            "             WHERE pushed = 0 ORDER BY id LIMIT 100) "
+            "RETURNING id"))]
+        session.commit()
+        if not ids:
             return 0
+        pend = session.exec(select(FantasyNotification).where(
+            FantasyNotification.id.in_(ids)).order_by(FantasyNotification.id)).all()
         for n in pend:
-            # se marcan siempre, salgan o no: reintentar en bucle un aviso viejo no
-            # ayuda a nadie y llenaría el registro de errores
-            n.pushed = True
-            session.add(n)
+            # ya están marcados: reintentar en bucle un aviso viejo no ayuda a nadie y
+            # llenaría el registro de errores
             if n.created_at < corte:
                 continue
             m = session.get(FantasyMember, n.member_id)
