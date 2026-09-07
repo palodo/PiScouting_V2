@@ -3,7 +3,7 @@
    plantilla del rival) y la fila del feed.
    ========================================================================== */
 import type { ReactNode } from "react";
-import { FEED_ICON, IconBolt, IconCalendar, IconGavel, IconInfo, IconLock } from "./icons";
+import { FEED_ICON, IconBolt, IconCalendar, IconGavel, IconInfo, IconLock, IconTrendUp } from "./icons";
 import { Photo, Trend, fmtWhen, prettyName, prettyTeam, relTime, stripEmoji } from "./ui";
 
 export type RowPlayer = {
@@ -156,8 +156,6 @@ export function ClauseMeta({ p }: { p: RowPlayer }) {
         ? "Cláusula de rescisión, bloqueada por ser un fichaje reciente"
         : "Cláusula de rescisión: lo que otro mánager tiene que pagarte por él"}>
       {p.clause_locked ? <IconLock size={11} strokeWidth={2.4} /> : <IconBolt size={11} strokeWidth={2.4} />}
-      {/* El icono solo no dice "cláusula": ni el que programó esto lo reconocía. */}
-      <span className="prow__clause__k">cláusula</span>
       {p.clause}
     </span>
   );
@@ -173,6 +171,18 @@ export function RestMeta({ p }: { p: RowPlayer }) {
 export function Delta({ v }: { v?: number }) {
   if (v == null || Math.abs(v) < 0.05) return null;
   return <Trend v={v} suffix=" M€" />;
+}
+
+/** Los símbolos de las filas, explicados una vez. Meter la palabra dentro de cada fila
+ *  partía la línea en dos y hacía crecer todas las tarjetas: sale más caro de lo que vale. */
+export function Leyenda() {
+  return (
+    <div className="leyenda">
+      <span><IconBolt size={11} strokeWidth={2.4} />cláusula de rescisión</span>
+      <span><IconLock size={11} strokeWidth={2.4} />cláusula bloqueada</span>
+      <span><IconTrendUp size={11} strokeWidth={2.4} />cambio de valor</span>
+    </div>
+  );
 }
 
 export function FeedRow({ e }: { e: { id: number; kind: string; text: string; at: string } }) {

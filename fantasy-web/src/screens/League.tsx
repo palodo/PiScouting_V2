@@ -9,7 +9,7 @@ import {
   IconAlert, IconArrowLeft, IconCalendar, IconCheck, IconCoin, IconCopy, IconLock,
   IconMarket, IconPlay, IconSearch, IconSquad, IconTrophy,
 } from "../icons";
-import { ClauseMeta, Delta, PlayerRow, RestMeta, fp, phaseInfo } from "../parts";
+import { ClauseMeta, Delta, Leyenda, PlayerRow, RestMeta, fp, phaseInfo } from "../parts";
 import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
@@ -501,7 +501,9 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onScoring
           meta={<><RestMeta p={p} /><Delta v={p.delta} /><ClauseMeta p={p} /></>} />
       ))}
 
-      <button className="linkbtn" style={{ margin: "18px auto 0" }} onClick={onScoring}>
+      <Leyenda />
+
+      <button className="linkbtn" style={{ margin: "14px auto 0" }} onClick={onScoring}>
         Cómo se calculan los puntos
       </button>
     </>

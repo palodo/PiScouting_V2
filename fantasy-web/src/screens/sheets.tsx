@@ -916,6 +916,8 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
     { tipo: "jugador"; p: any; x0: number; y0: number }
     | { tipo: "hueco"; i: number; x0: number; y0: number } | null>(null);
   const movido = useRef(false);
+  const [quieta, setQuieta] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setQuieta(true), 300); return () => clearTimeout(t); }, []);
 
   useEffect(() => {
     if (!gesto) return;
@@ -1004,7 +1006,7 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
         <SheetClose onClose={onClose} />
       </div>
 
-      <div className="lu__court">
+      <div className={"lu__court" + (quieta ? " lu--anima" : "")}>
         <HalfCourt />
         {SLOTS.slice(0, lineupSize).map((pos, i) => {
           const p = huecos[i];
@@ -1014,8 +1016,8 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
               className={"lu__slot" + (libre ? " lu__slot--free" : "")
                 + (cogido && libre ? " lu__slot--target" : "")}>
               {p
-                ? <div className={"lu__tok" + (cogido?.player_id === p.player_id ? " is-held" : "")}
-                    {...cogerJugador(p)}>
+                ? <div key={p.player_id} {...cogerJugador(p)}
+                    className={"lu__tok" + (cogido?.player_id === p.player_id ? " is-held" : "")}>
                     <Photo code={p.feb_code} name={p.name} variant="tok" />
                     <span className="lu__tag">{prettyName(p.name).split(" ").slice(-1)[0]}</span>
                   </div>
@@ -1031,7 +1033,7 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
       </div>
 
       <Section right={String(banquillo.length)}>Banquillo</Section>
-      <div className="lu__bench" data-destino="banquillo">
+      <div className={"lu__bench" + (quieta ? " lu--anima" : "")} data-destino="banquillo">
         {banquillo.length === 0 && <p className="hint">No te queda nadie en el banquillo.</p>}
         {banquillo.map((p) => (
           <div key={p.player_id} {...cogerJugador(p)}

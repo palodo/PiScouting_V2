@@ -65,6 +65,10 @@
   --fs-3xl: 30px;
   --fs-4xl: 38px;
 
+  /* Movimiento. Las curvas nativas de CSS son flojas y le quitan intención al gesto; esta
+     arranca rápida, que es lo que hace que una interfaz se sienta despierta. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
   /* forma */
   --r-sm: 10px;
   --r-md: 14px;
@@ -1326,3 +1330,28 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 /* La cláusula era un rayo morado y un número, y nadie sabía qué era. La palabra va
    delante, en peso normal, para que el número siga siendo lo que destaca. */
 .prow__clause__k { font-weight: 500; opacity: 0.75; }
+
+/* Leyenda de símbolos. Discreta a propósito: se consulta una vez y luego estorba. */
+.leyenda {
+  display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 16px 2px 0;
+  font-size: var(--fs-xs); color: var(--text-3);
+}
+.leyenda span { display: inline-flex; align-items: center; gap: 5px; }
+.leyenda svg { color: var(--clause); flex-shrink: 0; }
+.leyenda span:last-child svg { color: var(--pos); }
+
+/* Al colocar a alguien aparece de golpe, y eso se lee como un fallo. Un aterrizaje corto
+   dice "ha caído aquí". Nunca desde scale(0): nada en el mundo real sale de la nada. */
+@keyframes lu-aterriza {
+  from { transform: scale(0.82); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+@keyframes lu-al-banco {
+  from { transform: translateY(-9px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.lu--anima .lu__tok { animation: lu-aterriza 210ms var(--ease-out) both; }
+.lu--anima .lu__card { animation: lu-al-banco 190ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .lu--anima .lu__tok, .lu--anima .lu__card { animation: none; }
+}
