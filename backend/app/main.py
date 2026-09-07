@@ -953,6 +953,27 @@ def fantasy_advance(league_id: int, user: User = Depends(auth.get_current_user),
     return fantasy_mod.advance(session, lg)
 
 
+class SimBody(BaseModel):
+    cuantos: int = 0
+
+
+@app.post("/api/fantasy/leagues/{league_id}/sim/{accion}")
+def fantasy_sim(league_id: int, accion: str, body: SimBody | None = None,
+                user: User = Depends(auth.get_current_user),
+                session: Session = Depends(get_session)):
+    """Mueve la jornada a mano en simulación: cerrar → jugar → finalizar."""
+    lg = _get_league(session, league_id)
+    if lg.owner_user_id != user.id and not auth.is_admin(user):
+        raise HTTPException(403, "Solo el creador de la liga puede mover la jornada")
+    if accion == "cerrar":
+        return fantasy_mod.sim_cerrar_mercado(session, lg)
+    if accion == "jugar":
+        return fantasy_mod.sim_jugar(session, lg, body.cuantos if body else 0)
+    if accion == "finalizar":
+        return fantasy_mod.sim_finalizar(session, lg)
+    raise HTTPException(400, "Acción desconocida")
+
+
 class ClauseBody(BaseModel):
     player_id: int
 

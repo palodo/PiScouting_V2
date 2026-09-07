@@ -181,6 +181,15 @@ class FantasyLeague(SQLModel, table=True):
     market_close_before_h: int = 19
     kickoff_at: Optional[datetime] = None  # UTC: primer salto de la jornada current+1
 
+    # --- simulación paso a paso ---
+    # En simulación el reloj es artificial, así que quien crea la liga la mueve a mano y en
+    # tres pasos, imitando un fin de semana real: viernes noche se cierra todo, el sábado
+    # se van jugando partidos y el domingo se cierra la jornada. `sim_step` en None
+    # significa "liga anterior a esto": se deduce del reloj la primera vez y se guarda, para
+    # que ninguna liga en marcha cambie de fase de golpe.
+    sim_step: Optional[int] = None   # 0 = mercado abierto · 1 = jornada en juego
+    sim_played: int = 0              # partidos de la jornada en curso ya disputados
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

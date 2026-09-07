@@ -88,7 +88,7 @@ def conference_games(session: Session, comp: str, grupo: Optional[str], season: 
         select(Player.id, Player.name, Player.feb_code, Team.id, Team.name,
                Match.jornada_num, Match.home_score, Match.away_score,
                PlayerMatchStat.is_home, PlayerMatchStat.val, PlayerMatchStat.plus_minus,
-               PlayerMatchStat.seconds)
+               PlayerMatchStat.seconds, PlayerMatchStat.match_id)
         .join(Match, Match.id == PlayerMatchStat.match_id)
         .join(Player, Player.id == PlayerMatchStat.player_id)
         .join(Team, Team.id == PlayerMatchStat.team_id)
@@ -98,7 +98,7 @@ def conference_games(session: Session, comp: str, grupo: Optional[str], season: 
         q = q.where(Team.grupo == grupo)
     out: dict[int, dict] = {}
     for (pid, pname, feb_code, tid, tname, jornada_num,
-         home_score, away_score, is_home, val, pm, seconds) in session.exec(q):
+         home_score, away_score, is_home, val, pm, seconds, mid) in session.exec(q):
         if jornada_num is None:
             continue
         my = home_score if is_home else away_score
@@ -115,7 +115,7 @@ def conference_games(session: Session, comp: str, grupo: Optional[str], season: 
             d["last_j"] = jornada_num
             d["team_id"] = tid
             d["team"] = tname
-        d["games"].append({"j": jornada_num, "val": val, "pm": pm, "won": won,
+        d["games"].append({"j": jornada_num, "val": val, "pm": pm, "won": won, "mid": mid,
                            "min": round((seconds or 0) / 60.0, 1), "margin": margin})
     for d in out.values():
         d["games"].sort(key=lambda g: g["j"])
@@ -471,6 +471,18 @@ def league_state(session: Session, league: FantasyLeague) -> dict:
         return {"phase": "fin", "jornada": league.current_jornada, "kickoff_at": None,
                 "ends_at": None, "market_deadline": None, "until": None, "pending": []}
 
+    if league.sim_mode:
+        # El reloj artificial se queda para el adorno: quien manda es el dueño de la liga.
+        paso = sim_step_de(session, league)
+        total = len(sim_partidos(session, league, nxt))
+        sim = {"step": paso, "played": league.sim_played, "total": total}
+        if paso == 0:
+            return {"phase": "mercado", "jornada": nxt, "kickoff_at": None, "ends_at": None,
+                    "market_deadline": None, "until": None, "pending": [], "sim": sim}
+        return {"phase": "jornada", "jornada": nxt, "kickoff_at": None, "ends_at": None,
+                "market_deadline": None, "until": None,
+                "pending": sim_pendientes(session, league, nxt), "sim": sim}
+
     kickoff, ends = jornada_window(session, league, nxt)
     deadline = kickoff - timedelta(hours=league.market_close_before_h)
     pending: list[str] = []
@@ -749,11 +761,64 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
 
 
 # ============================ puntuación por jornada ============================
+# ============================ simulación paso a paso ============================
+# En simulación el reloj no significa nada: la temporada de la base ya está jugada entera.
+# Antes eso hacía que un clic saltara la jornada completa. Ahora el dueño la mueve en tres
+# pasos, como un fin de semana de verdad: viernes noche se cierra todo, el sábado se van
+# jugando partidos y se puede ir mirando, y el domingo se cierra la jornada.
+
+def sim_partidos(session: Session, league: FantasyLeague, jornada: int) -> list[int]:
+    """Los partidos de una jornada, en el orden en que se van a ir disputando."""
+    q = select(Match.id).where(Match.competition == league.competition,
+                               Match.season == league.season,
+                               Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    # por fecha y luego por id: el mismo orden en cada llamada, que si no "los primeros
+    # tres partidos" serían tres distintos cada vez que se mira
+    q = q.order_by(Match.match_date, Match.id)
+    return list(session.exec(q).all())
+
+
+def sim_step_de(session: Session, league: FantasyLeague) -> int:
+    """0 = mercado, 1 = jornada en juego. Se deduce del reloj la primera vez.
+
+    Las ligas creadas antes de esto no tienen paso guardado, y ponerlas todas en "mercado"
+    las sacaría de golpe de una jornada que están jugando. Así que la primera vez se mira
+    el reloj viejo y se escribe lo que dijera.
+    """
+    if league.sim_step is not None:
+        return league.sim_step
+    nxt = league.current_jornada + 1
+    kickoff, _ = jornada_window(session, league, nxt)
+    league.sim_step = 1 if utcnow() >= kickoff else 0
+    if league.sim_step == 1:
+        # estaba jugándose: se da por disputada entera, que es lo que el reloj decía
+        league.sim_played = len(sim_partidos(session, league, nxt))
+    session.add(league)
+    session.commit()
+    return league.sim_step
+
+
+def sim_jugados(session: Session, league: FantasyLeague, jornada: int) -> Optional[set[int]]:
+    """Partidos que YA se han disputado de una jornada, o None si cuentan todos.
+
+    Solo recorta la jornada en curso: las ya puntuadas son historia y se cuentan enteras.
+    """
+    if not league.sim_mode or jornada != league.current_jornada + 1:
+        return None
+    if sim_step_de(session, league) == 0:
+        return set()          # aún no ha empezado: nadie ha puntuado nada
+    return set(sim_partidos(session, league, jornada)[:league.sim_played])
+
+
 def jornada_points(session: Session, league: FantasyLeague, jornada: int) -> dict[int, float]:
     conf = conference_games(session, league.competition, league.grupo, league.season)
+    jugados = sim_jugados(session, league, jornada)
     out: dict[int, float] = {}
     for pid, d in conf.items():
-        games = [g for g in d["games"] if g["j"] == jornada]
+        games = [g for g in d["games"] if g["j"] == jornada
+                 and (jugados is None or g["mid"] in jugados)]
         if games:
             out[pid] = round(sum(_fp(g, league.win_bonus) for g in games), 1)
     return out
@@ -1591,6 +1656,21 @@ def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> li
     return faltan
 
 
+def sim_pendientes(session: Session, league: FantasyLeague, jornada: int) -> list[str]:
+    """Los que en simulación todavía no se han disputado, con nombres, para poder decir
+    exactamente qué falta antes de cerrar la jornada."""
+    ids = sim_partidos(session, league, jornada)[league.sim_played:]
+    faltan = []
+    for mid in ids:
+        m = session.get(Match, mid)
+        if not m:
+            continue
+        local = session.get(Team, m.home_team_id) if m.home_team_id else None
+        visit = session.get(Team, m.away_team_id) if m.away_team_id else None
+        faltan.append(f"{local.name if local else '?'} - {visit.name if visit else '?'}")
+    return faltan
+
+
 def resting_teams(session: Session, league: FantasyLeague, jornada: int) -> set[int]:
     """Equipos de la conferencia que NO juegan esa jornada.
 
@@ -1760,6 +1840,82 @@ def frozen_lineup(session: Session, league: FantasyLeague, member_id: int,
         return json.loads(row.player_ids)
     except (TypeError, ValueError):
         return None
+
+
+def sim_cerrar_mercado(session: Session, league: FantasyLeague) -> dict:
+    """Paso 1 · viernes noche: se cierra el mercado y se congelan los quintetos."""
+    if not league.sim_mode:
+        return {"ok": False, "message": "Esta liga va con el calendario real de la FEB"}
+    if sim_step_de(session, league) != 0:
+        return {"ok": False, "message": "La jornada ya está en juego"}
+    nxt = league.current_jornada + 1
+    league.sim_step = 1
+    league.sim_played = 0
+    session.add(league)
+    _log(session, league.id, "jornada",
+         f"🔒 Jornada {nxt}: mercado cerrado y quintetos bloqueados")
+    session.commit()
+    return {"ok": True, "step": 1, "jornada": nxt,
+            "total": len(sim_partidos(session, league, nxt)), "played": 0}
+
+
+def sim_jugar(session: Session, league: FantasyLeague, cuantos: int = 0) -> dict:
+    """Paso 2 · se disputan algunos partidos y ya se puede ir mirando cómo va.
+
+    Por defecto, la mitad de lo que quede (mínimo uno): así el segundo clic deja jornada
+    a medias de verdad, que es la gracia de poder asomarse antes del final.
+    """
+    if not league.sim_mode:
+        return {"ok": False, "message": "Esta liga va con el calendario real de la FEB"}
+    if sim_step_de(session, league) != 1:
+        return {"ok": False, "message": "Primero cierra el mercado"}
+    nxt = league.current_jornada + 1
+    total = len(sim_partidos(session, league, nxt))
+    quedan = total - league.sim_played
+    if quedan <= 0:
+        return {"ok": False, "message": "Ya se han jugado todos los partidos de la jornada"}
+    n = cuantos if cuantos > 0 else max(1, quedan // 2)
+    league.sim_played = min(total, league.sim_played + n)
+    session.add(league)
+    jugados = league.sim_played
+    _log(session, league.id, "jornada",
+         f"🏀 Jornada {nxt}: se han jugado {jugados} de {total} partidos")
+    session.commit()
+    return {"ok": True, "step": 1, "jornada": nxt, "total": total, "played": jugados,
+            "remaining": total - jugados}
+
+
+def sim_finalizar(session: Session, league: FantasyLeague) -> dict:
+    """Paso 3 · domingo noche: se cierra la jornada y se puntúa.
+
+    No se cierra con partidos por disputar: quien tuviera a alguien de esos equipos se
+    comería un cero que no le toca, y eso no hay forma de deshacerlo después.
+    """
+    if not league.sim_mode:
+        return advance(session, league)
+    if sim_step_de(session, league) != 1:
+        return {"ok": False, "message": "La jornada todavía no ha empezado"}
+    nxt = league.current_jornada + 1
+    # Domingo noche: se disputa lo que quedara y se cierra. `advance` comprueba por su
+    # cuenta que todos los partidos tienen resultado de verdad en la base y se niega a
+    # puntuar si falta alguno, que es la garantía que de verdad importa: quien tuviera a
+    # alguien de un equipo sin jugar se comería un cero imposible de deshacer.
+    total = len(sim_partidos(session, league, nxt))
+    quedaban = total - league.sim_played
+    league.sim_played = total
+    session.add(league)
+    session.commit()
+
+    res = advance(session, league)
+    if not res.get("ok"):
+        return res          # a la base le falta algún resultado: se deja la jornada abierta
+
+    league.sim_step = 0
+    league.sim_played = 0
+    session.add(league)
+    session.commit()
+    res["jugados_al_cerrar"] = quedaban
+    return res
 
 
 def advance(session: Session, league: FantasyLeague) -> dict:
@@ -2115,6 +2271,8 @@ def league_out(league: FantasyLeague, state: Optional[dict] = None) -> dict:
             # atajos para la UI: qué está bloqueado ahora mismo
             "can_trade": state["phase"] == "mercado",
             "can_lineup": state["phase"] in ("mercado", "alineacion"),
+            # en simulación, en qué paso va la jornada y cuántos partidos llevan jugados
+            "sim": state.get("sim"),
         }
     return {**extra, **{
         "id": league.id, "name": league.name, "join_code": league.join_code,

@@ -216,18 +216,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
             <button className="linkbtn" onClick={onBack}><IconArrowLeft size={18} />Mis ligas</button>
             <span style={{ flex: 1 }} />
             <NotificationBell feed={data.feed} leagueId={id} />
-            {admin && (
-              <button className="btn btn--sm btn--ghost" disabled={busy || done}
-                onClick={() => act(async () => {
-                  // puede responder ok:false si la jornada tiene partidos sin jugar
-                  const r: any = await api.advance(id);
-                  setMsg(r?.ok === false
-                    ? { text: r.message, bad: true }
-                    : { text: `Jornada ${r?.jornada ?? ""} puntuada` });
-                })}>
-                <IconPlay size={13} />{done ? "Temporada completa" : "Puntuar jornada"}
-              </button>
-            )}
+            {admin && <PasoJornada lg={lg} busy={busy} done={done} act={act} setMsg={setMsg}
+              leagueId={id} />}
           </div>
 
           <div className="appbar__title"><h1>{lg.name}</h1></div>
@@ -536,5 +526,77 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onScoring
         Cómo se calculan los puntos
       </button>
     </>
+  );
+}
+
+
+/* ------------------------------------------------------- avanzar la jornada */
+/* En simulación el reloj es de mentira, así que la jornada la mueve el dueño a mano y en
+   tres pasos, como un fin de semana: viernes noche se cierra todo, el sábado se juegan
+   partidos y ya se puede ir mirando la clasificación, y el domingo se cierra.
+   Con calendario real de la FEB esto no aplica: manda el calendario y sigue el botón de
+   siempre, que solo puntúa cuando la FEB ha dado todos los resultados. */
+function PasoJornada({ lg, busy, done, act, setMsg, leagueId }: any) {
+  const sim = lg.sim;
+  const enSimulacion = Boolean(lg.sim_mode) && sim;
+
+  if (done) {
+    return <button className="btn btn--sm btn--ghost" disabled><IconPlay size={13} />Temporada completa</button>;
+  }
+
+  if (!enSimulacion) {
+    return (
+      <button className="btn btn--sm btn--ghost" disabled={busy}
+        onClick={() => act(async () => {
+          const r: any = await api.advance(leagueId);
+          setMsg(r?.ok === false ? { text: r.message, bad: true }
+            : { text: `Jornada ${r?.jornada ?? ""} puntuada` });
+        })}>
+        <IconPlay size={13} />Puntuar jornada
+      </button>
+    );
+  }
+
+  const paso: number = sim.step ?? 0;
+  const { played = 0, total = 0 } = sim;
+
+  if (paso === 0) {
+    return (
+      <button className="btn btn--sm btn--ghost" disabled={busy}
+        onClick={() => act(async () => {
+          const r: any = await api.sim(leagueId, "cerrar");
+          setMsg(r?.ok === false ? { text: r.message, bad: true }
+            : { text: "Mercado cerrado y quintetos bloqueados" });
+        })}>
+        <IconLock size={13} />Cerrar mercado
+      </button>
+    );
+  }
+
+  // Tres clics y no más: en cuanto se ha jugado algo, el siguiente paso es cerrar. Si
+  // "jugar" fuera repetible, el botón de cerrar no aparecería nunca, porque cada tanda
+  // disputa solo una parte de lo que queda.
+  if (played === 0) {
+    return (
+      <button className="btn btn--sm btn--ghost" disabled={busy}
+        onClick={() => act(async () => {
+          const r: any = await api.sim(leagueId, "jugar");
+          setMsg(r?.ok === false ? { text: r.message, bad: true }
+            : { text: `Se han jugado ${r.played} de ${r.total} partidos` });
+        })}>
+        <IconPlay size={13} />Jugar partidos<span className="num"> {played}/{total}</span>
+      </button>
+    );
+  }
+
+  return (
+    <button className="btn btn--sm" disabled={busy}
+      onClick={() => act(async () => {
+        const r: any = await api.sim(leagueId, "finalizar");
+        setMsg(r?.ok === false ? { text: r.message, bad: true }
+          : { text: `Jornada ${r?.jornada ?? ""} cerrada y puntuada` });
+      })}>
+      <IconPlay size={13} />Cerrar jornada
+    </button>
   );
 }

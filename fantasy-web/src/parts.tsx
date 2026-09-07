@@ -49,6 +49,18 @@ export function phaseInfo(lg: any) {
   }
   if (phase === "jornada") {
     const pend: string[] = lg?.pending_matches ?? [];
+    const sim = lg?.sim;
+    // En simulación no hay reloj de verdad, así que el contador honesto son los partidos
+    // disputados: un cronómetro inventado diría una hora que no significa nada.
+    if (sim) {
+      return {
+        phase, j, chip: `${sim.played}/${sim.total} partidos`,
+        title: `Jornada ${j} en juego`, until: null, live: true,
+        note: sim.played === 0
+          ? "Mercado cerrado y quintetos bloqueados. Aún no se ha jugado nada."
+          : `Van ${sim.played} de ${sim.total} partidos. Los puntos que ves son provisionales.`,
+      };
+    }
     return {
       phase, j, chip: `J${j} en juego`, title: `Jornada ${j} en juego · acaba en`,
       until: lg?.jornada_ends_at ?? null, live: true,
