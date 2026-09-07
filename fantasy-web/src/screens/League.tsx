@@ -14,6 +14,7 @@ import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
 import MarketTab from "./Market";
+import DirectoTab from "./Directo";
 import BetsTab from "./Bets";
 import OffersTab from "./Offers";
 import PlayersTab from "./Players";
@@ -258,7 +259,11 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
             onEditLineup={() => setEditandoQuinteto(true)} />
         )}
 
-        {tab === "mercado" && (
+        {tab === "mercado" && ph.phase === "jornada" && (
+          <DirectoTab leagueId={id} myMemberId={data.my_member_id} onPlayer={openPlayer} />
+        )}
+
+        {tab === "mercado" && ph.phase !== "jornada" && (
           <MarketTab lg={lg} market={market} clauses={clauses} admin={admin} busy={busy}
             offers={offers}
             offersUI={<OffersTab data={offers} busy={busy}
@@ -390,18 +395,26 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
 
       <nav className="tabbar">
         <div className="tabbar__in">
-          {TABS.map(([k, Icon, label]) => (
-            <button key={k} className={"tab" + (tab === k ? " is-on" : "")} onClick={() => setTab(k)}>
+          {TABS.map(([k0, Icon0, label0]) => {
+            // Con la jornada en juego no se ficha, así que el sitio del mercado lo ocupa
+            // el directo: es donde de verdad quieres estar ese rato.
+            const enJuego = ph.phase === "jornada";
+            const k = k0, label = k0 === "mercado" && enJuego ? "Directo" : label0;
+            const Icon = k0 === "mercado" && enJuego ? IconPlay : Icon0;
+            return (
+            <button key={k} className={"tab" + (tab === k ? " is-on" : "")
+              + (k === "mercado" && enJuego ? " tab--live" : "")} onClick={() => setTab(k)}>
               <span className="tab__ico"><Icon size={21} strokeWidth={tab === k ? 2.1 : 1.7} /></span>
               {label}
-              {k === "mercado" && tab !== "mercado"
+              {k === "mercado" && tab !== "mercado" && !enJuego
                 && ((offers?.received?.length ?? 0) > 0 || lg.market_open)
                 && <span className="tab__badge" />}
               {k === "apuestas" && tab !== "apuestas"
                 && (bets?.my_bets ?? []).some((b: any) => b.status === "pending")
                 && <span className="tab__badge" />}
             </button>
-          ))}
+            );
+          })}
         </div>
       </nav>
     </div>

@@ -732,6 +732,13 @@ def fantasy_jornada_ranking(league_id: int, jornada: int,
     return fantasy_mod.jornada_ranking(session, _get_league(session, league_id), jornada)
 
 
+@app.get("/api/fantasy/leagues/{league_id}/directo")
+def fantasy_directo(league_id: int, user: User = Depends(auth.get_current_user),
+                    session: Session = Depends(get_session)):
+    """La jornada en vivo: clasificación provisional, quintetos y partidos."""
+    return fantasy_mod.directo(session, _get_league(session, league_id))
+
+
 @app.get("/api/fantasy/leagues/{league_id}/jornada/{jornada}/resumen")
 def fantasy_jornada_resumen(league_id: int, jornada: int,
                             user: User = Depends(auth.get_current_user),

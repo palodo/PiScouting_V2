@@ -14,6 +14,9 @@ export type RowPlayer = {
   price: number;
   fp_avg?: number;
   fp_form?: number;
+  /** Jornada en juego: `live_fp` es lo que lleva hoy, o null si aún no ha jugado. */
+  live?: boolean;
+  live_fp?: number | null;
   val_avg?: number;
   form?: number;
   delta?: number;
@@ -146,13 +149,20 @@ export function PlayerRow({ p, onOpen, right, tone, meta, hero, hidePrice, pf: p
         <div className="prow__team">{prettyTeam(p.team) || "—"}</div>
         <div className="prow__meta">
           {!hidePrice && <span className="prow__price num">{p.price} M€</span>}
+          {p.live && <span className="prow__avg">media {fp(p).toFixed(1)}</span>}
           {meta}
           {!!p.bids && <span className="prow__bids"><IconGavel size={11} strokeWidth={2.2} />{p.bids}</span>}
           {p.departed && <span className="prow__gone">No puntúa</span>}
         </div>
       </div>
       <div className="prow__side">
-        {hero ?? <PfBox value={pfValue ?? fp(p)} muted={p.departed} />}
+        {hero ?? (p.live
+          // Jugándose la jornada, el número grande es lo que lleva HOY: la media de la
+          // temporada no se mira mientras la bola está en el aire.
+          ? (p.live_fp == null
+              ? <div className="pfbox pfbox--wait"><b>—</b><span>juega</span></div>
+              : <PfBox value={p.live_fp} label="hoy" muted={p.departed} />)
+          : <PfBox value={pfValue ?? fp(p)} muted={p.departed} />)}
         {right}
       </div>
     </div>

@@ -1720,11 +1720,17 @@ def jornada_matches(session: Session, league: FantasyLeague, jornada: int) -> li
 
     now = utcnow()
     fin_partido = timedelta(hours=MATCH_LEN_H)
+    # En simulación la base ya tiene TODOS los resultados, así que sin este filtro la
+    # jornada se destriparía entera nada más empezar: el marcador de un partido que aún no
+    # se ha "jugado" no se manda, y el partido figura como pendiente.
+    disputados = sim_jugados(session, league, jornada)
     out = []
     for m in ms:
         local = session.get(Team, m.home_team_id) if m.home_team_id else None
         visit = session.get(Team, m.away_team_id) if m.away_team_id else None
         jugado = m.home_score is not None and m.away_score is not None
+        if disputados is not None and m.id not in disputados:
+            jugado = False
         if jugado:
             estado = "jugado"
         elif m.start_at and m.start_at <= now < m.start_at + fin_partido:
@@ -1741,7 +1747,8 @@ def jornada_matches(session: Session, league: FantasyLeague, jornada: int) -> li
             "match_id": m.id, "jornada": jornada,
             "home": local.name if local else "?", "away": visit.name if visit else "?",
             "home_id": m.home_team_id, "away_id": m.away_team_id,
-            "home_score": m.home_score, "away_score": m.away_score,
+            "home_score": m.home_score if jugado else None,
+            "away_score": m.away_score if jugado else None,
             "date": m.match_date.isoformat() if m.match_date else None,
             "start_at": m.start_at.isoformat() + "Z" if m.start_at else None,
             "status": estado, "moved": movido,
@@ -2075,6 +2082,67 @@ def jornada_resumen(session: Session, league: FantasyLeague,
     return {"jornada": j, "lideres": lideres, "partidos": len(partidos)}
 
 
+def directo(session: Session, league: FantasyLeague) -> dict:
+    """Todo lo de la jornada que se está jugando, en vivo.
+
+    Mientras se juega no se ficha, así que la pestaña del mercado no pinta nada: este es
+    el sitio al que se viene a mirar. Trae la clasificación provisional de la jornada, el
+    quinteto de cada uno con lo que lleva sumado, y los partidos con su marcador —solo los
+    disputados: el resto figuran como pendientes aunque la base ya sepa cómo acaban.
+    """
+    st = league_state(session, league)
+    j = st["jornada"]
+    pts = jornada_points(session, league, j)
+    info = {r["player_id"]: r for r in all_priced(session, league)}
+    partidos = jornada_matches(session, league, j)
+
+    # De qué partido es cada equipo esta jornada, para saber si un jugador ya ha jugado.
+    equipos_jugados = set()
+    for m in partidos:
+        if m["home_score"] is not None:
+            equipos_jugados.update([m["home_id"], m["away_id"]])
+
+    filas = []
+    for m in session.exec(select(FantasyMember)
+                          .where(FantasyMember.league_id == league.id)).all():
+        titulares = frozen_lineup(session, league, m.id, j)
+        if titulares is None:
+            titulares = [p.player_id for p in picks_of(session, m.id) if p.starter]
+        jugadores = []
+        for pid in titulares:
+            d = info.get(pid, {})
+            jugadores.append({
+                "player_id": pid, "name": d.get("name"), "feb_code": d.get("feb_code"),
+                "team": d.get("team"), "team_id": d.get("team_id"),
+                # None SOLO si su partido no se ha jugado todavía. Si ya se jugó y no
+                # aparece en los puntos es que no saltó a pista: eso es un cero de verdad,
+                # y confundirlo con "está por jugar" da falsas esperanzas al que va perdiendo.
+                "points": (pts.get(pid, 0.0)
+                           if d.get("team_id") in equipos_jugados else None),
+                "jugado": d.get("team_id") in equipos_jugados,
+            })
+        filas.append({
+            "member_id": m.id, "manager": m.manager_name,
+            "points": round(sum(pts.get(p["player_id"], 0.0) for p in jugadores), 1),
+            "total_points": m.total_points,
+            "por_jugar": sum(1 for p in jugadores if not p["jugado"]),
+            "jugadores": jugadores,
+        })
+
+    filas.sort(key=lambda r: -r["points"])
+    for i, r in enumerate(filas):
+        r["pos"] = filas[i - 1]["pos"] if i and r["points"] == filas[i - 1]["points"] else i + 1
+
+    sim = st.get("sim") or {}
+    return {
+        "jornada": j,
+        "played": sim.get("played"), "total": sim.get("total"),
+        "en_juego": st["phase"] == "jornada",
+        "clasificacion": filas,
+        "partidos": partidos,
+    }
+
+
 def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[int] = None) -> dict:
     """Clasificación de UNA jornada: quién sumó más ese fin de semana.
 
@@ -2178,7 +2246,18 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
     now = utcnow()
     # el que descansa esta jornada sumará cero haga lo que haga: mejor saberlo antes de
     # cerrar el quinteto que después, mirando el desglose
-    descansan = resting_teams(session, league, league_state(session, league)["jornada"])
+    st = league_state(session, league)
+    descansan = resting_teams(session, league, st["jornada"])
+    # Con la jornada en juego, lo que importa no es la media de la temporada sino lo que tu
+    # quinteto está sumando AHORA. Va aparte para que la app cambie el número grande sin
+    # perder la media, que se sigue queriendo saber al fichar.
+    en_juego = st["phase"] == "jornada"
+    vivos = jornada_points(session, league, st["jornada"]) if en_juego else {}
+    jugados_eq: set = set()
+    if en_juego:
+        for mm in jornada_matches(session, league, st["jornada"]):
+            if mm["home_score"] is not None:
+                jugados_eq.update([mm["home_id"], mm["away_id"]])
     for p in picks_of(session, member.id):
         d = info.get(p.player_id, {})
         cur = d.get("price", p.buy_price)
@@ -2192,6 +2271,10 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
             "val_avg": d.get("val_avg", 0), "form": d.get("form", 0),
             "fp_avg": d.get("fp_avg", 0), "fp_form": d.get("fp_form", 0),
             "games": d.get("games", 0),
+            # puntos de la jornada en curso: None mientras su partido no se haya jugado
+            "live_fp": (vivos.get(p.player_id, 0.0)
+                        if en_juego and d.get("team_id") in jugados_eq else None),
+            "live": en_juego,
             # puesto en venta: la liga le va mandando ofertas
             "on_sale": bool(p.sale_started_at),
             "sale_offers_made": p.sale_offers_made,

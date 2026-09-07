@@ -78,6 +78,7 @@ export const api = {
   advance: (id: number) => post(`/fantasy/leagues/${id}/advance`),
   sim: (id: number, accion: "cerrar" | "jugar" | "finalizar", cuantos = 0) =>
     post(`/fantasy/leagues/${id}/sim/${accion}`, { cuantos }),
+  directo: (id: number) => get(`/fantasy/leagues/${id}/directo`),
   feed: (id: number) => get<any[]>(`/fantasy/leagues/${id}/feed`),
 
   // sin liga, los avisos de todas; con liga, solo los de esa
