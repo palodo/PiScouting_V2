@@ -14,7 +14,8 @@ applyTheme(readTheme());
 // indicador de inicio (ver --safe-b en index.css).
 document.documentElement.classList.toggle("is-standalone", esInstalada());
 
-export type Me = { id: number; email: string; name?: string | null; is_admin?: boolean };
+export type Me = { id: number; email: string; name?: string | null; is_admin?: boolean;
+  created_at?: string | null };
 
 export default function App() {
   const [booted, setBooted] = useState(false);

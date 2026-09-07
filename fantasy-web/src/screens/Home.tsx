@@ -98,7 +98,7 @@ export default function Home({ me, onOpen, onLogout, invitacion, onInvitacionUsa
 
             <Avisos />
             <Apoyar />
-            <RecordatorioDonacion />
+            <RecordatorioDonacion me={me} />
 
             {me.is_admin && <>
               <Section>Administración</Section>
@@ -479,22 +479,25 @@ function Apoyar() {
 }
 
 /* ------------------------------------------------- recordatorio de donación */
-/* La tarjeta de Ajustes sola no la ve nadie, así que además se recuerda de vez en cuando.
-   Dos reglas para que no queme: nunca a un recién llegado (hay que dejar que le coja
-   cariño a la app antes de pedirle nada) y como mucho una vez cada mes y medio. Quien
-   dice que ya ha colaborado no lo vuelve a ver jamás. */
-const DONA_KEY = "pf_donacion";
-const GRACIA_DIAS = 14;
-const CADA_DIAS = 45;
+/* La tarjeta de Ajustes no la ve nadie: hay que salir a buscarla. Ahora, además, una hoja
+   que aparece sola de vez en cuando.
 
-type EstadoDona = { primeraVez: string; ultimaVez: string | null; colaborado: boolean };
+   Dos reglas para que no queme. La gracia va por antigüedad de la CUENTA, no por primera
+   visita desde este navegador: así el que lleva meses jugando lo ve ya, y el que acaba de
+   registrarse tiene su semana tranquila aunque entre desde un móvil nuevo. Y entre aviso y
+   aviso, quince días. Quien dice que ya ha colaborado no lo vuelve a ver jamás. */
+const DONA_KEY = "pf_donacion2";  // v2: la v1 nació con otras reglas, se empieza de cero
+const GRACIA_DIAS = 7;
+const CADA_DIAS = 15;
+
+type EstadoDona = { ultimaVez: string | null; colaborado: boolean };
 
 function leerDona(): EstadoDona {
   try {
     const raw = localStorage.getItem(DONA_KEY);
     if (raw) return { ultimaVez: null, colaborado: false, ...JSON.parse(raw) };
   } catch { /* modo privado o almacenamiento bloqueado */ }
-  return { primeraVez: new Date().toISOString(), ultimaVez: null, colaborado: false };
+  return { ultimaVez: null, colaborado: false };
 }
 
 function guardarDona(e: EstadoDona) {
@@ -503,14 +506,14 @@ function guardarDona(e: EstadoDona) {
 
 const diasDesde = (iso: string) => (Date.now() - new Date(iso).getTime()) / 86_400_000;
 
-function RecordatorioDonacion() {
+function RecordatorioDonacion({ me }: { me: Me }) {
   const [abierto, setAbierto] = useState(false);
 
   useEffect(() => {
     const e = leerDona();
-    guardarDona(e);  // deja fijado `primeraVez` en la primera visita
     if (e.colaborado) return;
-    if (diasDesde(e.primeraVez) < GRACIA_DIAS) return;
+    // Sin `created_at` se da por veterano: es el caso de cualquier cuenta anterior a esto.
+    if (me.created_at && diasDesde(me.created_at) < GRACIA_DIAS) return;
     if (e.ultimaVez && diasDesde(e.ultimaVez) < CADA_DIAS) return;
     // un respiro antes de aparecer: primero que se vea la app, y luego se pide
     const t = setTimeout(() => {
@@ -518,7 +521,7 @@ function RecordatorioDonacion() {
       setAbierto(true);
     }, 2500);
     return () => clearTimeout(t);
-  }, []);
+  }, [me.created_at]);
 
   if (!abierto) return null;
   const cerrar = () => setAbierto(false);
@@ -543,7 +546,7 @@ function RecordatorioDonacion() {
       </p>
       <p className="hint" style={{ marginTop: 8 }}>
         Si te está alegrando la temporada y te apetece echar una mano, se agradece. Y si no,
-        tranquilo: no vuelvo a preguntarte en mes y medio.
+        tranquilo: cierras esto y no vuelvo a preguntarte en dos semanas.
       </p>
 
       <div className="sheet__actions">

@@ -293,6 +293,8 @@ def _user_out(session: Session, user: User) -> dict:
     return {
         "id": user.id, "email": user.email, "name": user.name,
         "is_admin": auth.is_admin(user),
+        # antigüedad de la cuenta: la usa el front para no pedir donativos a un recién llegado
+        "created_at": user.created_at.isoformat() if user.created_at else None,
         "team": {"team_id": team.id, "name": team.name, "logo": team.logo,
                  "competition": team.competition, "grupo": team.grupo} if team else None,
     }
