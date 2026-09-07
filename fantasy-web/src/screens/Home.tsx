@@ -6,9 +6,12 @@ import { phaseInfo } from "../parts";
 import { Brand, Empty, Segmented, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
 import NotificationBell from "./Notifications";
 import { activarPush, desactivarPush, estadoPush, type PushState } from "../push";
-import { IconBell } from "../icons";
+import { IconBell, IconHeart } from "../icons";
 
 const DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+
+/** Página de donaciones. Ko-fi no se lleva comisión; solo la pasarela de pago. */
+const KOFI = "https://ko-fi.com/pifantasy";
 
 const monogram = (s: string) =>
   s.trim().split(/\s+/).filter((w) => w.length > 2).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
@@ -94,6 +97,7 @@ export default function Home({ me, onOpen, onLogout, invitacion, onInvitacionUsa
             </div>
 
             <Avisos />
+            <Apoyar />
 
             {me.is_admin && <>
               <Section>Administración</Section>
@@ -447,6 +451,28 @@ function Avisos() {
         )}
       </div>
       <p className="hint" style={{ margin: "8px 0 0" }}>{texto[estado]}</p>
+    </div>
+  );
+}
+
+
+/* ----------------------------------------------------------------- apoyar */
+/** Invitación discreta a donar. Sin contraprestación: si se diera algo a
+ *  cambio dejaría de ser donación y pasaría a ser una venta. */
+function Apoyar() {
+  return (
+    <div className="card card--pad" style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ color: "var(--accent)" }}><IconHeart size={19} /></span>
+        <span className="field__label" style={{ flex: 1, margin: 0 }}>Apoya PiFantasy</span>
+        <a className="btn btn--sm btn--quiet" href={KOFI} target="_blank" rel="noopener noreferrer">
+          Invitar a un café
+        </a>
+      </div>
+      <p className="hint" style={{ margin: "8px 0 0" }}>
+        PiFantasy es gratis y sin anuncios. Si te apetece echar una mano con el servidor,
+        se agradece — pero no cambia nada dentro del juego.
+      </p>
     </div>
   );
 }

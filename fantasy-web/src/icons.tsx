@@ -168,6 +168,10 @@ export const IconTransfer = stroke(<>
   <path d="M20 15.6H6.6m3.5-3.5-3.5 3.5 3.5 3.5" />
 </>);
 
+export const IconHeart = stroke(
+  <path d="M18.16 13.76c1.31-1.28 2.64-2.82 2.64-4.84A4.84 4.84 0 0 0 15.96 4.08c-1.55 0-2.64.44-3.96 1.76-1.32-1.32-2.41-1.76-3.96-1.76A4.84 4.84 0 0 0 3.2 8.92c0 2.02 1.32 3.56 2.64 4.84l6.16 6.16Z" />
+);
+
 /** Icono para cada `kind` del feed que devuelve el backend. */
 export const FEED_ICON: Record<string, (p: IconProps) => ReactNode> = {
   market: IconMarket,
