@@ -24,3 +24,10 @@ _probe*.py
 # Caché de fotos de jugadores (se regenera)
 data/player_photos_cache/
 data/team_logos_cache/
+
+# Skills instaladas con `npx skills add`. Son herramientas del asistente, no código de la
+# app: 33 MB, y lo más pesado son MP3 de una skill de vídeo. Se reinstalan con ese mismo
+# comando, y `.claude/skills` son enlaces simbólicos que se romperían en otra máquina.
+.agents/
+.claude/skills/
+skills-lock.json
