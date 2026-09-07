@@ -21,7 +21,7 @@ import NotificationBell from "./Notifications";
 import TableTab from "./Table";
 import {
   BidSheet, ClauseSheet, InviteSheet, LineupSheet, ManagerJornadaSheet, ManagerSheet,
-  MatchesSheet, OfferSheet, PlayerSheet, RestSheet, ScoringSheet,
+  MatchesSheet, OfferSheet, PlayerSheet, ResumenSheet, RestSheet, ScoringSheet,
 } from "./sheets";
 
 type Tab = "equipo" | "mercado" | "jugadores" | "liga" | "apuestas";
@@ -47,6 +47,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [tab, setTab] = useState<Tab>("equipo");
   const [marketView, setMarketView] = useState<"subastas" | "clausulas" | "ofertas">("subastas");
   const [editandoQuinteto, setEditandoQuinteto] = useState(false);
+  const [resumenJ, setResumenJ] = useState<number | null>(null);
   const [data, setData] = useState<any>(null);
   const [market, setMarket] = useState<any>(null);
   const [clauses, setClauses] = useState<any>(null);
@@ -103,6 +104,28 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   }, [tab, data?.league?.market_open]);
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 2800); return () => clearTimeout(t); }, [msg]);
   useEffect(() => { setJr(data?.jornada_ranking ?? null); }, [data?.jornada_ranking]);
+
+  /* El resumen sale solo al entrar cuando la jornada ya está puntuada, y una única vez:
+     la gracia es enterarte al llegar, no que te lo repitan cada vez que abres la liga.
+     Se recuerda por liga y por jornada, así que cada nueva jornada vuelve a saltar. */
+  const vistoKey = `pf_resumen_${id}`;
+  useEffect(() => {
+    const lgd = data?.league;
+    if (!lgd || lgd.phase === "jornada") return;
+    const j = lgd.current_jornada ?? 0;
+    if (j <= 0) return;
+    let visto = 0;
+    try { visto = Number(localStorage.getItem(vistoKey) ?? 0); } catch { /* da igual */ }
+    if (visto >= j) return;
+    const t = setTimeout(() => setResumenJ(j), 700);   // que la liga se vea antes
+    return () => clearTimeout(t);
+  }, [data, vistoKey]);
+
+  function cerrarResumen() {
+    try { localStorage.setItem(vistoKey, String(resumenJ ?? 0)); } catch { /* da igual */ }
+    setResumenJ(null);
+  }
+
   // Descansos: se avisa una vez por jornada, y solo mientras aún se puede cambiar el
   // quinteto. Si ya ha saltado el primer partido, enterarse no sirve de nada.
   const restKey = (j: number) => `pf_rest_${id}_${j}`;
@@ -266,6 +289,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
 
         {tab === "liga" && (
           <TableTab data={data} lg={lg} jr={jr}
+            onResumen={(lg.current_jornada ?? 0) > 0 ? () => setResumenJ(lg.current_jornada) : undefined}
             onJornada={(j: number) => api.jornada(id, j).then(setJr).catch(() => {})}
             onManager={openManager} onPlayer={openPlayer} />
         )}
@@ -354,6 +378,10 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           onPlayer={(pid, j) => { setJornadaFor(null); openPlayer(pid, j); }} />
       )}
 
+      {resumenJ != null && (
+        <ResumenSheet leagueId={id} jornada={resumenJ} onClose={cerrarResumen}
+          onPlayer={(pid) => { cerrarResumen(); openPlayer(pid); }} />
+      )}
       {editandoQuinteto && (
         <LineupSheet squad={squad} lineupSize={lg.lineup_size} busy={busy}
           onClose={() => setEditandoQuinteto(false)} onSave={guardarQuinteto} />

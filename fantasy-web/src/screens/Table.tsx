@@ -8,7 +8,7 @@ import { Empty, Photo, Section, Segmented, prettyName, prettyTeam } from "../ui"
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer }: any) {
+export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer, onResumen }: any) {
   const rows: any[] = jr?.rows ?? [];
   const [view, setView] = useState<"jornada" | "general">(rows.length ? "jornada" : "general");
 
@@ -24,6 +24,12 @@ export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer 
         ? <JornadaView jr={jr} myId={data.my_member_id} onJornada={onJornada}
             onManager={onManager} onPlayer={onPlayer} />
         : <General data={data} lg={lg} onManager={onManager} />}
+
+      {onResumen && (
+        <button className="linkbtn" style={{ margin: "16px auto 0" }} onClick={onResumen}>
+          Ver el resumen de la jornada
+        </button>
+      )}
     </>
   );
 }

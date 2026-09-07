@@ -55,6 +55,8 @@ export const api = {
 
   league: (id: number) => get(`/fantasy/leagues/${id}`),
   jornada: (id: number, j: number) => get(`/fantasy/leagues/${id}/jornada/${j}`),
+  resumenJornada: (id: number, j: number) =>
+    get(`/fantasy/leagues/${id}/jornada/${j}/resumen`),
   market: (id: number) => get(`/fantasy/leagues/${id}/market`),
   bid: (id: number, listing_id: number, amount: number) => post(`/fantasy/leagues/${id}/bid`, { listing_id, amount }),
   cancelBid: (id: number, listing_id: number) => post(`/fantasy/leagues/${id}/bid/cancel`, { listing_id }),

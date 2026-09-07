@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import {
   IconBolt, IconCalendar, IconCheck, IconClock, IconClose, IconCoin, IconCopy, IconGavel,
-  IconLock, IconMinus, IconPlus, IconShare, IconSquad, IconWhatsApp,
+  IconLock, IconMinus, IconPlus, IconShare, IconSquad, IconTrophy, IconWhatsApp,
 } from "../icons";
 import { PfBox, PlayerRow, fp, lockLabel } from "../parts";
 import {
@@ -1061,6 +1061,70 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
           <Photo code={fantasma.p.feb_code} name={fantasma.p.name} variant="tok" />
         </div>
       )}
+    </Sheet>
+  );
+}
+
+
+/* --------------------------------------------------- resumen de la jornada */
+/* Al acabar la jornada apetece saber quién la rompió, y hasta ahora había que ir jugador
+   por jugador. Mira la conferencia entera y no solo a los fichados: parte de la gracia es
+   descubrir al que se salió estando libre en el mercado. */
+export function ResumenSheet({ leagueId, jornada, onClose, onPlayer }: {
+  leagueId: number; jornada: number; onClose: () => void; onPlayer?: (id: number) => void;
+}) {
+  const [d, setD] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api.resumenJornada(leagueId, jornada).then(setD).catch((e) => setErr(e.message));
+  }, [leagueId, jornada]);
+
+  return (
+    <Sheet onClose={onClose} title={`Resumen de la jornada ${jornada}`}>
+      <div className="sheet__head">
+        <span className="sheet__ico"><IconTrophy size={22} /></span>
+        <div className="sheet__body">
+          <h2>Jornada {jornada}</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            {d ? `Lo mejor de los ${d.partidos} partidos` : "Lo mejor de la jornada"}
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      {err && <p className="hint" style={{ marginTop: 14 }}>No se pudo cargar: {err}</p>}
+      {!d && !err && <Loading label="Repasando la jornada" />}
+
+      {d?.lideres?.length === 0 && (
+        <p className="hint" style={{ marginTop: 14 }}>
+          Esta jornada no dejó estadísticas todavía.
+        </p>
+      )}
+
+      <div className="res">
+        {d?.lideres?.map((l: any) => (
+          <button key={l.clave} className="res__row"
+            onClick={() => onPlayer?.(l.player_id)}>
+            <Photo code={l.feb_code} name={l.name} variant="sm" />
+            <div className="res__b">
+              <div className="res__k">{l.titulo}</div>
+              <div className="res__n">{prettyName(l.name)}</div>
+              <div className="res__t">
+                {prettyTeam(l.team)}
+                {l.owner && <span className="res__own">lo tiene {l.owner}</span>}
+              </div>
+            </div>
+            <div className="res__v">
+              <b className="num">{l.valor}</b>
+              <span>{l.unidad}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <div className="sheet__actions">
+        <button className="btn" onClick={onClose}>Entendido</button>
+      </div>
     </Sheet>
   );
 }

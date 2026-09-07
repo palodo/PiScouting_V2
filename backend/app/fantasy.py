@@ -1840,6 +1840,80 @@ def _recover_starters(league: FantasyLeague, picks: list, pts: dict, target: flo
     return None
 
 
+# Las categorías del resumen. El orden es el del titular: la valoración manda porque es la
+# medida que la FEB usa para el MVP, y el resto cuenta la jornada desde otro ángulo.
+RESUMEN_CATEGORIAS = [
+    ("val", "Más valorado", "de valoración"),
+    ("pts", "Máximo anotador", "puntos"),
+    ("treb", "Más rebotes", "rebotes"),
+    ("ast", "Más asistencias", "asistencias"),
+    ("t3m", "Más triples", "triples"),
+    ("plus_minus", "Mejor +/-", "de diferencial"),
+]
+
+
+def jornada_resumen(session: Session, league: FantasyLeague,
+                    jornada: Optional[int] = None) -> dict:
+    """Los mejores de una jornada en la conferencia de la liga.
+
+    Sale al entrar cuando la jornada ya está puntuada: es el momento en el que apetece
+    saber quién la rompió, y hasta ahora había que ir jugador a jugador para enterarse.
+    Mira la conferencia entera, no solo los fichados: parte de la gracia es ver al que se
+    salió estando libre en el mercado.
+    """
+    j = jornada if jornada is not None else league.current_jornada
+    if j <= 0:
+        return {"jornada": 0, "lideres": [], "partidos": 0}
+
+    q = (
+        select(Player.id, Player.name, Player.feb_code, Team.name,
+               PlayerMatchStat.val, PlayerMatchStat.pts, PlayerMatchStat.treb,
+               PlayerMatchStat.ast, PlayerMatchStat.t3m, PlayerMatchStat.plus_minus,
+               PlayerMatchStat.match_id)
+        .join(Match, Match.id == PlayerMatchStat.match_id)
+        .join(Player, Player.id == PlayerMatchStat.player_id)
+        .join(Team, Team.id == PlayerMatchStat.team_id)
+        .where(Team.competition == league.competition, Team.season == league.season,
+               Match.jornada_num == j)
+    )
+    if league.grupo:
+        q = q.where(Team.grupo == league.grupo)
+
+    filas, partidos = [], set()
+    for (pid, nombre, feb, equipo, val, pts, treb, ast, t3m, pm, mid) in session.exec(q):
+        partidos.add(mid)
+        filas.append({"player_id": pid, "name": nombre, "feb_code": feb, "team": equipo,
+                      "val": val or 0, "pts": pts or 0, "treb": treb or 0,
+                      "ast": ast or 0, "t3m": t3m or 0, "plus_minus": pm or 0})
+    if not filas:
+        return {"jornada": j, "lideres": [], "partidos": 0}
+
+    # De quién es cada uno en ESTA liga, para poder decir "y lo tiene Marta".
+    duenos = {
+        pick.player_id: m.manager_name
+        for pick, m in session.exec(
+            select(FantasyPick, FantasyMember)
+            .join(FantasyMember, FantasyMember.id == FantasyPick.member_id)
+            .where(FantasyMember.league_id == league.id)).all()
+    }
+
+    lideres = []
+    for clave, titulo, unidad in RESUMEN_CATEGORIAS:
+        mejor = max(filas, key=lambda f: f[clave])
+        if mejor[clave] <= 0:
+            continue     # nadie rebotó ni asistió: mejor callar que enseñar un cero
+        lideres.append({
+            "clave": clave, "titulo": titulo, "unidad": unidad,
+            "valor": mejor[clave], "player_id": mejor["player_id"], "name": mejor["name"],
+            "feb_code": mejor["feb_code"], "team": mejor["team"],
+            "owner": duenos.get(mejor["player_id"]),
+            # el resto de su línea, para que la cifra tenga contexto
+            "linea": {k: mejor[k] for k in ("pts", "treb", "ast", "val")},
+        })
+
+    return {"jornada": j, "lideres": lideres, "partidos": len(partidos)}
+
+
 def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[int] = None) -> dict:
     """Clasificación de UNA jornada: quién sumó más ese fin de semana.
 

@@ -1355,3 +1355,27 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .lu--anima .lu__tok, .lu--anima .lu__card { animation: none; }
 }
+
+/* --------------------------------------------- resumen de la jornada */
+.res { display: grid; gap: 8px; margin-top: 16px; }
+.res__row {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 9px 11px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.res__row:active { background: var(--surface-2); }
+.res__b { flex: 1; min-width: 0; }
+/* La categoría va arriba y pequeña: lo que se busca al abrir es el nombre. */
+.res__k { font-size: var(--fs-2xs); font-weight: 800; color: var(--accent); }
+.res__n {
+  font-size: var(--fs-md); font-weight: 800; margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.res__t {
+  font-size: var(--fs-xs); color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.res__own { margin-left: 7px; color: var(--clause); }
+.res__v { text-align: right; flex-shrink: 0; }
+.res__v b { display: block; font-family: var(--display); font-size: var(--fs-2xl); line-height: 1; }
+.res__v span { font-size: var(--fs-2xs); color: var(--text-3); }
