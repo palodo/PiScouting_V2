@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { Me } from "../App";
 import { IconAlert, IconArrowLeft, IconLogout, IconTrophy } from "../icons";
 import { phaseInfo } from "../parts";
-import { Brand, Empty, Segmented, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
+import { Brand, Empty, Segmented, Sheet, SheetClose, SkeletonList, Section, useThemeMode, type ThemeMode } from "../ui";
 import NotificationBell from "./Notifications";
 import { activarPush, desactivarPush, estadoPush, type PushState } from "../push";
 import { IconBell, IconHeart } from "../icons";
@@ -98,6 +98,7 @@ export default function Home({ me, onOpen, onLogout, invitacion, onInvitacionUsa
 
             <Avisos />
             <Apoyar />
+            <RecordatorioDonacion />
 
             {me.is_admin && <>
               <Section>Administración</Section>
@@ -474,5 +475,86 @@ function Apoyar() {
         se agradece — pero no cambia nada dentro del juego.
       </p>
     </div>
+  );
+}
+
+/* ------------------------------------------------- recordatorio de donación */
+/* La tarjeta de Ajustes sola no la ve nadie, así que además se recuerda de vez en cuando.
+   Dos reglas para que no queme: nunca a un recién llegado (hay que dejar que le coja
+   cariño a la app antes de pedirle nada) y como mucho una vez cada mes y medio. Quien
+   dice que ya ha colaborado no lo vuelve a ver jamás. */
+const DONA_KEY = "pf_donacion";
+const GRACIA_DIAS = 14;
+const CADA_DIAS = 45;
+
+type EstadoDona = { primeraVez: string; ultimaVez: string | null; colaborado: boolean };
+
+function leerDona(): EstadoDona {
+  try {
+    const raw = localStorage.getItem(DONA_KEY);
+    if (raw) return { ultimaVez: null, colaborado: false, ...JSON.parse(raw) };
+  } catch { /* modo privado o almacenamiento bloqueado */ }
+  return { primeraVez: new Date().toISOString(), ultimaVez: null, colaborado: false };
+}
+
+function guardarDona(e: EstadoDona) {
+  try { localStorage.setItem(DONA_KEY, JSON.stringify(e)); } catch { /* da igual */ }
+}
+
+const diasDesde = (iso: string) => (Date.now() - new Date(iso).getTime()) / 86_400_000;
+
+function RecordatorioDonacion() {
+  const [abierto, setAbierto] = useState(false);
+
+  useEffect(() => {
+    const e = leerDona();
+    guardarDona(e);  // deja fijado `primeraVez` en la primera visita
+    if (e.colaborado) return;
+    if (diasDesde(e.primeraVez) < GRACIA_DIAS) return;
+    if (e.ultimaVez && diasDesde(e.ultimaVez) < CADA_DIAS) return;
+    // un respiro antes de aparecer: primero que se vea la app, y luego se pide
+    const t = setTimeout(() => {
+      guardarDona({ ...e, ultimaVez: new Date().toISOString() });
+      setAbierto(true);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (!abierto) return null;
+  const cerrar = () => setAbierto(false);
+  const yaColabore = () => { guardarDona({ ...leerDona(), colaborado: true }); cerrar(); };
+
+  return (
+    <Sheet onClose={cerrar} title="Apoya PiFantasy">
+      <div className="sheet__head">
+        <span className="sheet__ico" style={{ color: "var(--accent)" }}><IconHeart size={22} /></span>
+        <div className="sheet__body">
+          <h2>El servidor lo pago yo</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            PiFantasy seguirá siendo gratis y sin anuncios
+          </div>
+        </div>
+        <SheetClose onClose={cerrar} />
+      </div>
+
+      <p className="hint" style={{ marginTop: 14 }}>
+        Aquí nadie tiene ventaja por pagar, y no la va a tener. Lo único que cuesta dinero
+        es el servidor donde vive todo esto, y lo pongo yo.
+      </p>
+      <p className="hint" style={{ marginTop: 8 }}>
+        Si te está alegrando la temporada y te apetece echar una mano, se agradece. Y si no,
+        tranquilo: no vuelvo a preguntarte en mes y medio.
+      </p>
+
+      <div className="sheet__actions">
+        <a className="btn" href={KOFI} target="_blank" rel="noopener noreferrer" onClick={cerrar}>
+          Invitar a un café
+        </a>
+        <button className="btn btn--ghost" onClick={cerrar}>Ahora no</button>
+        <button className="btn btn--quiet btn--sm" onClick={yaColabore}>
+          Ya he colaborado, no preguntes más
+        </button>
+      </div>
+    </Sheet>
   );
 }
