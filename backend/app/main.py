@@ -723,6 +723,8 @@ def fantasy_league_detail(league_id: int, user: User = Depends(auth.get_current_
         "jornada_ranking": fantasy_mod.jornada_ranking(session, lg),
         # jornadas ya puntuadas a las que les falta un aplazado: sus puntos subirán solos
         "jornadas_incompletas": fantasy_mod.jornadas_incompletas(session, lg),
+        # un partido de la jornada se juega por delante del resto: hay que avisar
+        "adelanto": fantasy_mod.adelanto_info(session, lg, member),
     }
 
 

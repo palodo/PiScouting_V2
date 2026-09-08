@@ -428,6 +428,12 @@ def es_aplazado(day: Optional[date], principal: Optional[date]) -> bool:
     return bool(day and principal and (day - principal).days >= 2)
 
 
+def es_adelantado(day: Optional[date], principal: Optional[date]) -> bool:
+    """Adelantado es dos días o más ANTES del grueso. Un partido que solo se juega unas
+    horas antes el mismo fin de semana no es un adelanto: es la jornada, que se reparte."""
+    return bool(day and principal and (day - principal).days <= -2)
+
+
 def jornada_real_window(session: Session, league: FantasyLeague, jornada: int) -> tuple:
     """(primer salto, final) de una jornada según el calendario REAL de la FEB.
 
@@ -449,9 +455,16 @@ def jornada_real_window(session: Session, league: FantasyLeague, jornada: int) -
         q = q.where(Match.grupo == league.grupo)
     filas = session.exec(q).all()
     principal = dia_principal([day for day, _ in filas])
-    starts, ends, ends_todos = [], [], []
+    starts, grueso, ends, ends_todos = [], [], [], []
     for day, start_at in filas:
-        if start_at:
+        if start_at and day and day < start_at.date():
+            # La FEB ha movido el DÍA hacia atrás pero no la hora: pasa con los adelantos
+            # que publica tarde, porque al partido ya jugado le quita la hora y
+            # `store_calendar` no la pisa con None. Manda el día, que es el dato fresco;
+            # si mandara la hora vieja, la liga creería que la jornada no ha empezado y
+            # se podría fichar a un jugador que ya ha puntuado.
+            ini, fin = _at(day, league.play_hour), _at(day, 23, 59)
+        elif start_at:
             ini, fin = start_at, start_at + timedelta(hours=MATCH_LEN_H)
         elif day:
             ini, fin = _at(day, league.play_hour), _at(day, 23, 59)
@@ -461,11 +474,13 @@ def jornada_real_window(session: Session, league: FantasyLeague, jornada: int) -
         ends_todos.append(fin)
         if not es_aplazado(day, principal):
             ends.append(fin)
+        if not es_adelantado(day, principal):
+            grueso.append(ini)
     if not starts:
-        return (None, None)
+        return (None, None, None)
     # Si TODA la jornada se ha movido no hay aplazados que valgan: es la jornada entera la
     # que cambia de fecha, y el final es el suyo nuevo.
-    return min(starts), max(ends or ends_todos)
+    return min(starts), min(grueso or starts), max(ends or ends_todos)
 
 
 def _first_kickoff(league: FantasyLeague, now: datetime) -> datetime:
@@ -476,18 +491,29 @@ def _first_kickoff(league: FantasyLeague, now: datetime) -> datetime:
 
 
 def jornada_window(session: Session, league: FantasyLeague, jornada: int) -> tuple:
-    """(primer salto, final previsto) de una jornada, en UTC naive.
+    """(salto del grueso, final previsto) de una jornada, en UTC naive.
 
-    Con la temporada en marcha manda el calendario real de la FEB (que además absorbe los
-    aplazamientos: si un partido se mueve, la jornada acaba más tarde). En simulación —o si
-    esa jornada no tiene fechas— manda el calendario semanal de la liga.
+    Con la temporada en marcha manda el calendario real de la FEB. El "grueso" es el primer
+    partido que NO va adelantado: es el que cierra el mercado, porque un partido que se
+    juega dos días antes no debe robarle a toda la liga la semana de fichajes. Quien manda
+    sobre el quinteto de los que ya han jugado es `sellar_quinteto`, no este reloj.
+    En simulación —o si esa jornada no tiene fechas— manda el calendario semanal de la liga.
     """
     if not league.sim_mode:
-        first, last = jornada_real_window(session, league, jornada)
-        if first:
-            return first, last
+        _, grueso, last = jornada_real_window(session, league, jornada)
+        if grueso:
+            return grueso, last
     start = league.kickoff_at or _first_kickoff(league, utcnow())
     return start, start + timedelta(hours=league.play_duration_h)
+
+
+def primer_salto(session: Session, league: FantasyLeague, jornada: int) -> Optional[datetime]:
+    """El primer partido de la jornada, adelantados incluidos. A partir de aquí ya hay
+    puntos sobre la mesa y empieza a sellarse el quinteto, jugador a jugador."""
+    if league.sim_mode:
+        return None
+    primero, _, _ = jornada_real_window(session, league, jornada)
+    return primero
 
 
 # Fases de la liga. El orden importa: es el ciclo por el que pasa cada jornada.
@@ -521,18 +547,33 @@ def league_state(session: Session, league: FantasyLeague) -> dict:
     kickoff, ends = jornada_window(session, league, nxt)
     deadline = kickoff - timedelta(hours=league.market_close_before_h)
     pending: list[str] = []
-    if now < deadline:
-        phase, until = "mercado", deadline
-    elif now < kickoff:
-        phase, until = "alineacion", kickoff
-    else:
+    # ¿Se ha adelantado algún partido? Entonces hay puntos sobre la mesa antes de que la
+    # jornada empiece de verdad. Se detecta por el reloj (el primer salto es anterior al
+    # grueso) y también porque YA haya un resultado: eso último es la red que no depende
+    # de que la FEB publique bien las horas, que a veces las publica tarde o no las
+    # publica. En simulación no aplica: la base tiene todos los resultados desde el
+    # principio y esto dispararía siempre.
+    primero = primer_salto(session, league, nxt)
+    hay_adelanto = bool(
+        (primero and primero < kickoff and now >= primero)
+        or jornada_empezada(session, league, nxt))
+
+    if now >= kickoff:
         # `pending` es informativo: son los partidos de la jornada que aún no se han
         # disputado. Ya no alarga la fase (un aplazado tenía la liga parada semanas); lo
         # que hace es que la jornada se puntúe provisional y se complete después.
         phase, until = "jornada", ends
         pending = pending_matches(session, league, nxt)
+    elif now < deadline:
+        phase, until = "mercado", deadline
+    else:
+        phase, until = "alineacion", kickoff
+    # Un adelanto NO cambia de fase: la liga sigue su semana igual. Lo único que queda
+    # cerrado son los jugadores que ya han jugado, y de eso se encarga `sellar_quinteto`.
+    # La bandera es para poder avisar: "ojo, este partido ya se juega".
     return {"phase": phase, "jornada": nxt, "kickoff_at": kickoff, "ends_at": ends,
-            "market_deadline": deadline, "until": until, "pending": pending}
+            "market_deadline": deadline, "until": until, "pending": pending,
+            "first_kickoff": primero, "adelanto": hay_adelanto}
 
 
 def _phase_error(state: dict, what: str) -> str:
@@ -759,8 +800,13 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
             changed = True
             continue
 
+        if state.get("adelanto") and phase != "jornada":
+            # Hay un partido por delante del resto: se cierran SOLO sus jugadores. La liga
+            # sigue su semana con normalidad, que es la gracia.
+            sellar_quinteto(session, league, state["jornada"])
+
         if phase == "jornada":
-            # Lo primero al saltar: dejar por escrito con qué quinteto entra cada uno.
+            # Ya ha saltado el grueso: se cierra todo lo que quede por sellar.
             freeze_lineups(session, league, state["jornada"])
             # Pasada su hora, se puntúa sola. Ya no se espera a los aplazados: la jornada
             # se cierra con lo jugado y `completar()` sube después lo que falte.
@@ -1664,16 +1710,42 @@ def offers_for(session: Session, league: FantasyLeague,
     return {"received": [fila(o) for o in recibidas], "sent": [fila(o) for o in enviadas]}
 
 
+def _ya_jugo(session: Session, player_id: int, jornada: int, era_titular: bool) -> str:
+    p = session.get(Player, player_id)
+    quien = _nice(p.name) if p else "Ese jugador"
+    return (f"{quien} ya ha jugado la jornada {jornada}: "
+            + ("no puedes sacarlo del quinteto" if era_titular else "ya no puedes alinearlo")
+            + ". Para la jornada siguiente lo tienes libre.")
+
+
 def set_lineup(session: Session, league: FantasyLeague, member: FantasyMember,
                starter_ids: list[int]) -> dict:
     sync_market(session, league)
-    # El quinteto se puede tocar hasta el primer salto: es lo último que se cierra.
-    _require(session, league, "mercado", "alineacion", what="podrás cambiar el quinteto")
+    # El quinteto se puede tocar hasta que salte el partido de cada uno: es lo último que
+    # se cierra, y se cierra jugador a jugador.
+    state = _require(session, league, "mercado", "alineacion",
+                     what="podrás cambiar el quinteto")
     if len(starter_ids) > league.lineup_size:
         raise ValueError(f"Solo puedes alinear {league.lineup_size} titulares")
     picks = picks_of(session, member.id)
     if not set(starter_ids).issubset({p.player_id for p in picks}):
         raise ValueError("Algún titular no está en tu plantilla")
+    # Los que ya han jugado esta jornada se quedan como estaban: ni se meten ni se sacan.
+    # Sin esto, el sábado se podría alinear al que hizo 30 puntos el viernes.
+    j = state["jornada"]
+    sellados = sellados_de(session, league, member.id, j)
+    for pid, era in sellados.items():
+        if (pid in starter_ids) != era:
+            raise ValueError(_ya_jugo(session, pid, j, era))
+    # Y los que NO están sellados pero su partido ya ha saltado: son fichajes posteriores
+    # a su propio partido. Se pueden tener, pero no alinear en esta jornada.
+    nuevos = [pid for pid in starter_ids if pid not in sellados]
+    if nuevos:
+        jugando = equipos_en_juego(session, league, j)
+        if jugando:
+            for pid, tid in _equipo_de(session, set(nuevos)).items():
+                if tid in jugando:
+                    raise ValueError(_ya_jugo(session, pid, j, False))
     for p in picks:
         p.starter = p.player_id in starter_ids
         session.add(p)
@@ -1733,6 +1805,19 @@ def sin_acta(session: Session, league: FantasyLeague, jornada: int) -> list[str]
             visit = session.get(Team, m.away_team_id) if m.away_team_id else None
             faltan.append(f"{local.name if local else '?'} - {visit.name if visit else '?'}")
     return faltan
+
+
+def jornada_empezada(session: Session, league: FantasyLeague, jornada: int) -> bool:
+    """¿Hay ya algún resultado de esa jornada? Entonces ha empezado, mande lo que mande
+    el calendario. Es la red de seguridad contra las horas mal publicadas."""
+    q = select(Match.id).where(Match.competition == league.competition,
+                               Match.season == league.season,
+                               Match.jornada_num == jornada,
+                               Match.home_score != None,  # noqa: E711
+                               Match.away_score != None)  # noqa: E711
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    return session.exec(q.limit(1)).first() is not None
 
 
 def _equipos_pendientes(session: Session, league: FantasyLeague, jornada: int) -> set[int]:
@@ -1913,26 +1998,135 @@ def _after_jornada(session: Session, league: FantasyLeague) -> None:
     league.market_opens_at = now
 
 
-def freeze_lineups(session: Session, league: FantasyLeague, jornada: int) -> int:
-    """Guarda el quinteto de cada mánager al empezar la jornada. Idempotente.
+def _inicio_de(league: FantasyLeague, m: Match) -> Optional[datetime]:
+    """Cuándo saltó (o salta) un partido. El DÍA manda sobre la hora: con un adelanto que
+    la FEB publica tarde, la hora se queda en la vieja y diría que aún no se ha jugado."""
+    if m.start_at and m.match_date and m.match_date < m.start_at.date():
+        return _at(m.match_date, league.play_hour)
+    if m.start_at:
+        return m.start_at
+    return _at(m.match_date, league.play_hour) if m.match_date else None
 
-    A partir de aquí la jornada ya no depende de la plantilla de hoy: puntúa la de
-    entonces. Es lo que hace que un aplazamiento no reparta los puntos de otra manera.
+
+def equipos_en_juego(session: Session, league: FantasyLeague,
+                     jornada: int) -> dict[int, datetime]:
+    """Equipos cuyo partido de la jornada YA ha saltado -> cuándo saltó.
+
+    Sus jugadores dejan de poder moverse del quinteto: lo que hicieron ya está hecho.
     """
-    ya = {r.member_id for r in session.exec(select(FantasyLineup).where(
-        FantasyLineup.league_id == league.id, FantasyLineup.jornada == jornada)).all()}
-    nuevos = 0
-    for m in session.exec(select(FantasyMember).where(
-            FantasyMember.league_id == league.id)).all():
-        if m.id in ya:
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    now = utcnow()
+    out: dict[int, datetime] = {}
+    for m in session.exec(q).all():
+        inicio = _inicio_de(league, m)
+        jugado = m.home_score is not None and m.away_score is not None
+        if not (jugado or (inicio and now >= inicio)):
             continue
-        ids = [p.player_id for p in picks_of(session, m.id) if p.starter]
-        session.add(FantasyLineup(league_id=league.id, member_id=m.id, jornada=jornada,
-                                  player_ids=json.dumps(ids)))
-        nuevos += 1
-    if nuevos:
-        session.commit()
-    return nuevos
+        for tid in (m.home_team_id, m.away_team_id):
+            if tid:
+                out[tid] = inicio or now
+    return out
+
+
+def _equipo_de(session: Session, player_ids: set[int]) -> dict[int, int]:
+    """player_id -> team_id, por su partido más reciente. Solo para los que se piden."""
+    if not player_ids:
+        return {}
+    q = (select(PlayerMatchStat.player_id, PlayerMatchStat.team_id, Match.jornada_num)
+         .join(Match, Match.id == PlayerMatchStat.match_id)
+         .where(PlayerMatchStat.player_id.in_(list(player_ids))))
+    ultimo: dict[int, int] = {}
+    out: dict[int, int] = {}
+    for pid, tid, j in session.exec(q):
+        if j is not None and j >= ultimo.get(pid, -1):
+            ultimo[pid], out[pid] = j, tid
+    return out
+
+
+def sellar_quinteto(session: Session, league: FantasyLeague, jornada: int,
+                    final: bool = False) -> int:
+    """Cierra el quinteto de una jornada POR PARTIDOS, no de golpe. Idempotente.
+
+    Un jugador queda sellado en cuanto salta SU partido: a partir de ahí ni entra ni sale
+    del quinteto de esa jornada, porque lo que hizo ya está hecho y dejarlo abierto sería
+    poder comprar puntos ya conocidos. Los demás se siguen tocando con normalidad, que es
+    lo que permite que un partido adelantado no le cierre la semana a toda la liga.
+
+    Con `final=True` (al puntuar la jornada) se sella todo lo que quede: a partir de ese
+    momento la foto ya no cambia, aunque falte un aplazado por disputarse.
+    """
+    filas = {r.member_id: r for r in session.exec(select(FantasyLineup).where(
+        FantasyLineup.league_id == league.id, FantasyLineup.jornada == jornada)).all()}
+    miembros = session.exec(select(FantasyMember).where(
+        FantasyMember.league_id == league.id)).all()
+    if not miembros:
+        return 0
+
+    equipos = {} if final else equipos_en_juego(session, league, jornada)
+    if not final and not equipos:
+        return 0
+
+    picks = {m.id: picks_of(session, m.id) for m in miembros}
+    de_quien = {}
+    if not final:
+        todos = {p.player_id for ps in picks.values() for p in ps}
+        de_quien = _equipo_de(session, todos)
+
+    tocados = 0
+    for m in miembros:
+        row = filas.get(m.id)
+        if row is None:
+            row = FantasyLineup(league_id=league.id, member_id=m.id, jornada=jornada,
+                                player_ids="[]", sealed="{}")
+            session.add(row)
+            filas[m.id] = row
+        try:
+            sellados = json.loads(row.sealed) if row.sealed else {}
+        except (TypeError, ValueError):
+            sellados = {}
+        cambio = False
+        for p in picks[m.id]:
+            if str(p.player_id) in sellados:
+                continue
+            inicio = None if final else equipos.get(de_quien.get(p.player_id))
+            if not final and inicio is None:
+                continue
+            # Quien llega a la plantilla DESPUÉS de su propio partido no puntúa esa
+            # jornada, aunque entre de titular: un clausulazo coloca al fichado en el
+            # quinteto si hay hueco, y eso sería comprar puntos ya conocidos.
+            titular = bool(p.starter) and (final or p.created_at <= inicio)
+            sellados[str(p.player_id)] = titular
+            cambio = True
+        if cambio or row.player_ids in (None, "", "[]"):
+            row.sealed = json.dumps(sellados)
+            row.player_ids = json.dumps([int(pid) for pid, tit in sellados.items() if tit])
+            session.add(row)
+            tocados += 1 if cambio else 0
+    session.commit()
+    return tocados
+
+
+def sellados_de(session: Session, league: FantasyLeague, member_id: int,
+                jornada: int) -> dict[int, bool]:
+    """player_id -> si estaba de titular, para los jugadores ya cerrados de esa jornada."""
+    row = session.exec(select(FantasyLineup).where(
+        FantasyLineup.league_id == league.id, FantasyLineup.member_id == member_id,
+        FantasyLineup.jornada == jornada)).first()
+    if not row or not row.sealed:
+        return {}
+    try:
+        return {int(k): bool(v) for k, v in json.loads(row.sealed).items()}
+    except (TypeError, ValueError):
+        return {}
+
+
+def freeze_lineups(session: Session, league: FantasyLeague, jornada: int) -> int:
+    """Cierra la jornada entera de golpe. Es el sellado final, ya sin partidos por saltar."""
+    return sellar_quinteto(session, league, jornada, final=True)
 
 
 def frozen_lineup(session: Session, league: FantasyLeague, member_id: int,
@@ -2488,6 +2682,11 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
     # perder la media, que se sigue queriendo saber al fichar.
     en_juego = st["phase"] == "jornada"
     vivos = jornada_points(session, league, st["jornada"]) if en_juego else {}
+    # Los que ya han jugado su partido de esta jornada: su sitio está cerrado aunque la
+    # liga siga en mercado (partido adelantado). La app los pinta con candado, para que se
+    # entienda antes de intentar moverlos.
+    sellados = sellados_de(session, league, member.id, st["jornada"])
+    jugando = equipos_en_juego(session, league, st["jornada"]) if st.get("adelanto") else {}
     jugados_eq: set = set()
     if en_juego:
         for mm in jornada_matches(session, league, st["jornada"]):
@@ -2515,11 +2714,52 @@ def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> 
             "sale_offers_made": p.sale_offers_made,
             # fichó por otro equipo: sigue en tu plantilla pero ya no puntúa
             "departed": bool(d.get("departed")),
+            # su partido de esta jornada ya se ha jugado: ni entra ni sale del quinteto
+            "played_already": bool(p.player_id in sellados or d.get("team_id") in jugando),
+            "sealed_starter": sellados.get(p.player_id),
             "clause": p.clause, "clause_locked": locked,
             "clause_lock_mins": int((p.clause_locked_until - now).total_seconds() // 60) if locked else 0,
         })
     out.sort(key=lambda r: (not r["starter"], -r["price"]))
     return out
+
+
+def adelanto_info(session: Session, league: FantasyLeague,
+                  member: Optional[FantasyMember]) -> Optional[dict]:
+    """El partido (o partidos) que se juegan por delante del resto de la jornada, y a
+    quién de tu plantilla le afectan. None si no hay ninguno.
+
+    Es lo que la app enseña al entrar: la liga no se para por un adelanto, pero sí hay que
+    avisar, porque a esos jugadores ya no se les puede mover. Quien no haga nada se queda
+    con el quinteto que tuviera puesto, que es lo que se sella.
+    """
+    st = league_state(session, league)
+    if not st.get("adelanto") or st["phase"] == "jornada":
+        return None
+    j = st["jornada"]
+    jugando = equipos_en_juego(session, league, j)
+    if not jugando:
+        return None
+    partidos = [r for r in jornada_matches(session, league, j)
+                if r["home_id"] in jugando or r["away_id"] in jugando]
+    mios = []
+    if member:
+        sellados = sellados_de(session, league, member.id, j)
+        info = {r["player_id"]: r for r in all_priced(session, league)}
+        for p in picks_of(session, member.id):
+            d = info.get(p.player_id, {})
+            if d.get("team_id") not in jugando:
+                continue
+            mios.append({
+                "player_id": p.player_id, "name": d.get("name", "?"),
+                "feb_code": d.get("feb_code"), "team": d.get("team"),
+                "starter": sellados.get(p.player_id, p.starter),
+                "sealed": p.player_id in sellados,
+                "fp_avg": d.get("fp_avg", 0),
+            })
+    return {"jornada": j, "matches": partidos, "players": mios,
+            "kickoff_at": _iso(st["kickoff_at"]),
+            "market_deadline": _iso(st["market_deadline"])}
 
 
 def feed(session: Session, league_id: int, limit: int = 40) -> list[dict]:
@@ -2591,6 +2831,10 @@ def league_out(league: FantasyLeague, state: Optional[dict] = None) -> dict:
             "jornada_ends_at": _iso(state["ends_at"]),
             "market_deadline": _iso(state["market_deadline"]),
             "pending_matches": state["pending"],
+            # hay un partido de la jornada que se juega por delante del resto: la liga
+            # sigue igual, pero conviene decirlo y ofrecer confirmar el quinteto
+            "adelanto": bool(state.get("adelanto")),
+            "first_kickoff": _iso(state.get("first_kickoff")),
             # atajos para la UI: qué está bloqueado ahora mismo
             "can_trade": state["phase"] == "mercado",
             "can_lineup": state["phase"] in ("mercado", "alineacion"),

@@ -973,7 +973,9 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
 
   const cogerJugador = (p: any) => ({
     onPointerDown: (e: React.PointerEvent) => {
-      if (busy) return;
+      // Su partido de esta jornada ya se ha jugado (un adelanto): su sitio está cerrado,
+      // ni entra ni sale. Se enseña con candado en vez de dejar intentarlo y fallar.
+      if (busy || p.played_already) return;
       e.stopPropagation();      // que no lo tome también el hueco de debajo
       movido.current = false;
       setGesto({ tipo: "jugador", p, x0: e.clientX, y0: e.clientY });
@@ -1017,9 +1019,13 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
                 + (cogido && libre ? " lu__slot--target" : "")}>
               {p
                 ? <div key={p.player_id} {...cogerJugador(p)}
-                    className={"lu__tok" + (cogido?.player_id === p.player_id ? " is-held" : "")}>
+                    className={"lu__tok" + (cogido?.player_id === p.player_id ? " is-held" : "")
+                      + (p.played_already ? " lu__tok--fijo" : "")}>
                     <Photo code={p.feb_code} name={p.name} variant="tok" />
-                    <span className="lu__tag">{prettyName(p.name).split(" ").slice(-1)[0]}</span>
+                    <span className="lu__tag">
+                      {p.played_already && <IconLock size={10} strokeWidth={2.6} />}
+                      {prettyName(p.name).split(" ").slice(-1)[0]}
+                    </span>
                   </div>
                 : <div className="lu__empty"><IconPlus size={17} /></div>}
             </div>
@@ -1032,17 +1038,28 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
         {puestos < lineupSize && <span> · arrastra {lineupSize - puestos} más</span>}
       </div>
 
+      {squad.some((p: any) => p.played_already) && (
+        <p className="hint" style={{ marginTop: 2 }}>
+          <IconLock size={11} strokeWidth={2.6} />{" "}
+          Su partido de esta jornada ya se ha jugado, así que su sitio está cerrado. El
+          resto del quinteto lo puedes mover con normalidad.
+        </p>
+      )}
+
       <Section right={String(banquillo.length)}>Banquillo</Section>
       <div className={"lu__bench" + (quieta ? " lu--anima" : "")} data-destino="banquillo">
         {banquillo.length === 0 && <p className="hint">No te queda nadie en el banquillo.</p>}
         {banquillo.map((p) => (
           <div key={p.player_id} {...cogerJugador(p)}
             className={"lu__card" + (cogido?.player_id === p.player_id ? " is-held" : "")
-              + (p.departed ? " lu__card--gone" : "")}>
+              + (p.departed ? " lu__card--gone" : "")
+              + (p.played_already ? " lu__card--fijo" : "")}>
             <Photo code={p.feb_code} name={p.name} variant="sm" />
             <div className="lu__card__b">
               <div className="lu__card__n">{prettyName(p.name)}</div>
-              <div className="lu__card__t">{prettyTeam(p.team)}</div>
+              <div className="lu__card__t">
+                {p.played_already ? "Ya ha jugado esta jornada" : prettyTeam(p.team)}
+              </div>
             </div>
             <PfBox value={fp(p)} muted={p.departed} />
           </div>
@@ -1065,6 +1082,89 @@ export function LineupSheet({ squad, lineupSize, busy, onClose, onSave }: {
   );
 }
 
+
+/* ------------------------------------------------- aviso de partido adelantado */
+/* La FEB mueve un partido por delante del resto de la jornada. La liga no se para —se
+   sigue fichando y se sigue tocando el quinteto— pero a esos jugadores ya no se les puede
+   mover, así que hay que decirlo ANTES y ofrecer confirmar el quinteto. Quien no haga
+   nada se queda con el que tenga puesto, que es lo que se sella. */
+export function AdelantoSheet({ d, onClose, onLineup, onPlayer }: {
+  d: any; onClose: () => void; onLineup?: () => void; onPlayer?: (id: number) => void;
+}) {
+  const partidos: any[] = d?.matches ?? [];
+  const mios: any[] = d?.players ?? [];
+  const jugados = partidos.filter((m) => m.status === "jugado");
+  const titulares = mios.filter((p) => p.starter);
+
+  return (
+    <Sheet onClose={onClose} title="Un partido se adelanta">
+      <div className="sheet__head">
+        <span className="sheet__ico"><IconCalendar size={22} /></span>
+        <div className="sheet__body">
+          <h2>Se adelanta un partido</h2>
+          <div className="dim" style={{ fontSize: "var(--fs-md)" }}>
+            Jornada {d?.jornada} · el resto se juega como estaba
+          </div>
+        </div>
+        <SheetClose onClose={onClose} />
+      </div>
+
+      <div className="list" style={{ marginTop: 14 }}>
+        {partidos.map((m) => (
+          <div key={m.match_id} className="lrow">
+            <span className="lrow__who">
+              <b>{prettyTeam(m.home)} - {prettyTeam(m.away)}</b>
+              <small>
+                {m.status === "jugado"
+                  ? `Ya jugado · ${m.home_score}-${m.away_score}`
+                  : m.status === "en_juego" ? "Jugándose ahora" : fmtWhen(m.start_at)}
+              </small>
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {mios.length > 0 ? (
+        <>
+          <Section right={`${titulares.length} en el quinteto`}>Tuyos en ese partido</Section>
+          <div className="list">
+            {mios.map((p) => (
+              <button key={p.player_id} className="lrow lrow--tap"
+                onClick={() => onPlayer?.(p.player_id)}>
+                <Photo code={p.feb_code} name={p.name} variant="sm" />
+                <span className="lrow__who">
+                  <b>{prettyName(p.name)}</b>
+                  <small>{prettyTeam(p.team)} · {p.starter ? "en tu quinteto" : "en el banquillo"}</small>
+                </span>
+                {p.sealed && <span className="dnp"><IconLock size={13} strokeWidth={2.4} /></span>}
+              </button>
+            ))}
+          </div>
+          <p className="hint" style={{ marginTop: 10 }}>
+            {jugados.length
+              ? "Su partido ya se ha jugado: su sitio en el quinteto de esta jornada está cerrado. Todo lo demás sigue igual — puedes fichar y recolocar al resto."
+              : "En cuanto salte ese partido, su sitio en el quinteto queda cerrado. Hasta entonces lo puedes cambiar."}
+          </p>
+        </>
+      ) : (
+        <p className="hint" style={{ marginTop: 14 }}>
+          No tienes a nadie de ese partido, así que no te afecta: sigue como si nada.
+        </p>
+      )}
+
+      <div className="sheet__actions">
+        {onLineup && (
+          <button className="btn btn--block" onClick={() => { onClose(); onLineup(); }}>
+            <IconSquad size={17} />Revisar mi quinteto
+          </button>
+        )}
+        <button className="btn btn--ghost btn--block" onClick={onClose}>
+          Dejarlo como está
+        </button>
+      </div>
+    </Sheet>
+  );
+}
 
 /* --------------------------------------------------- resumen de la jornada */
 /* Al acabar la jornada apetece saber quién la rompió, y hasta ahora había que ir jugador

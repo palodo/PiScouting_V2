@@ -301,7 +301,11 @@ class FantasyLineup(SQLModel, table=True):
     league_id: int = Field(foreign_key="fantasy_leagues.id", index=True)
     member_id: int = Field(foreign_key="fantasy_members.id", index=True)
     jornada: int = Field(index=True)
-    player_ids: str = ""                         # JSON: los titulares de ese momento
+    player_ids: str = ""                         # JSON: los titulares ya cerrados
+    # La foto no se hace de golpe: cada jugador queda sellado en cuanto salta SU partido,
+    # y hasta entonces se puede mover. Así un partido adelantado no le cierra el quinteto
+    # a toda la liga dos días antes. JSON {player_id: era_titular}. Ver `sellar_quinteto`.
+    sealed: Optional[str] = None
     frozen_at: datetime = Field(default_factory=datetime.utcnow)
 
 

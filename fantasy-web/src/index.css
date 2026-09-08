@@ -1310,6 +1310,13 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 }
 .lu__card.is-held { border-color: var(--accent); background: var(--accent-soft); }
 .lu__card--gone .photo { filter: grayscale(1); opacity: 0.6; }
+/* Su partido de la jornada ya se ha jugado (un adelanto): la ficha se queda quieta. No se
+   apaga del todo —sigue contando— pero deja de invitar a arrastrarla. */
+.lu__tok--fijo, .lu__card--fijo { cursor: default; touch-action: auto; }
+.lu__tok--fijo .photo--tok { opacity: 0.72; }
+.lu__tok--fijo .lu__tag { display: inline-flex; align-items: center; gap: 3px; }
+.lu__card--fijo { background: var(--surface-2); border-style: dashed; }
+.lu__card--fijo .photo { opacity: 0.72; }
 .lu__card__b { flex: 1; min-width: 0; }
 .lu__card__n {
   font-size: var(--fs-md); font-weight: 800;

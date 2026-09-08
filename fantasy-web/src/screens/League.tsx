@@ -21,7 +21,8 @@ import PlayersTab from "./Players";
 import NotificationBell from "./Notifications";
 import TableTab from "./Table";
 import {
-  BidSheet, ClauseSheet, InviteSheet, LineupSheet, ManagerJornadaSheet, ManagerSheet,
+  AdelantoSheet, BidSheet, ClauseSheet, InviteSheet, LineupSheet, ManagerJornadaSheet,
+  ManagerSheet,
   MatchesSheet, OfferSheet, PlayerSheet, ResumenSheet, RestSheet, ScoringSheet,
 } from "./sheets";
 
@@ -69,6 +70,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
   const [offerFor, setOfferFor] = useState<any>(null);
   const [bets, setBets] = useState<any>(null);
   const [avisoDescanso, setAvisoDescanso] = useState(false);
+  const [avisoAdelanto, setAvisoAdelanto] = useState(false);
   const avisado = useRef(false);
   const inited = useRef(false);
 
@@ -144,6 +146,23 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
     } catch { /* navegador sin almacenamiento: se avisa igual */ }
     setAvisoDescanso(true);
   }, [id, data?.my_squad, data?.league?.current_jornada]);
+
+  // Partido adelantado: la liga no se para, pero a esos jugadores ya no se les puede
+  // mover, así que se avisa una vez por jornada y se ofrece revisar el quinteto.
+  const adelKey = (j: number) => `pf_adel_${id}_${j}`;
+  function adelantoVisto(j: number) {
+    try { localStorage.setItem(adelKey(j), "1"); } catch { /* da igual */ }
+    setAvisoAdelanto(false);
+  }
+  useEffect(() => {
+    const ad = data?.adelanto;
+    if (!ad) return;
+    try {
+      if (localStorage.getItem(adelKey(ad.jornada))) return;
+    } catch { /* navegador sin almacenamiento: se avisa igual */ }
+    const t = setTimeout(() => setAvisoAdelanto(true), 500);   // que la liga se vea antes
+    return () => clearTimeout(t);
+  }, [id, data?.adelanto?.jornada, data?.adelanto?.matches?.length]);
 
   // La fase (mercado / último cambio de quinteto / jornada en juego) manda en toda la pantalla.
   const ph = phaseInfo(data?.league);
@@ -353,6 +372,13 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           jugadores={squad.filter((p: any) => p.starter && p.rests && !p.departed)}
           onClose={() => descansoVisto(ph.j)}
           onFix={() => { descansoVisto(ph.j); setTab("equipo"); }} />
+      )}
+
+      {avisoAdelanto && data?.adelanto && (
+        <AdelantoSheet d={data.adelanto}
+          onClose={() => adelantoVisto(data.adelanto.jornada)}
+          onLineup={() => { adelantoVisto(data.adelanto.jornada); setEditandoQuinteto(true); }}
+          onPlayer={(pid: number) => { adelantoVisto(data.adelanto.jornada); openPlayer(pid); }} />
       )}
 
       {invitando && (
