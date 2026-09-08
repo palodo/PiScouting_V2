@@ -956,6 +956,62 @@ html.sheet-open .shell > .wrap { overflow: hidden; }
 }
 .quick button:active { border-color: var(--accent); color: var(--text); }
 
+/* -------------------------------------------------------------- dónde vas
+   Lo primero de la pestaña Equipo. El peso se lo lleva el PUESTO, no los puntos: en una
+   liga entre amigos lo que se siente es ir tercero, y los puntos son la prueba. Por eso el
+   ordinal va en Archivo grande y con el color del podio, y todo lo demás se mantiene
+   callado alrededor. Sin degradados ni sombras de más: el contraste ya lo pone el número. */
+.marcador {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 16px;
+  width: 100%; margin-bottom: 12px; padding: 14px 16px; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+}
+.marcador:disabled { cursor: default; }
+.marcador__pos {
+  display: grid; justify-items: center; gap: 1px;
+  padding-right: 16px; border-right: 1px solid var(--border);
+}
+.marcador__pos b {
+  font-family: var(--display); font-weight: 800; font-size: 46px; line-height: 0.92;
+  letter-spacing: -0.05em; color: var(--text-2);
+}
+/* La "º" a tamaño de nota: pegada al número, no compitiendo con él. */
+.marcador__pos b span { font-size: 0.42em; vertical-align: super; letter-spacing: 0; }
+.marcador__pos > span { font-size: var(--fs-xs); color: var(--text-3); font-weight: 600; }
+.marcador__pos--oro b { color: var(--gold); }
+.marcador__pos--plata b { color: var(--silver); }
+.marcador__pos--bronce b { color: var(--bronze); }
+
+.marcador__b { min-width: 0; display: grid; gap: 5px; }
+.marcador__pts { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.marcador__pts b {
+  font-family: var(--display); font-weight: 800; font-size: var(--fs-2xl);
+  letter-spacing: -0.03em; color: var(--text);
+}
+.marcador__pts > span { font-size: var(--fs-sm); color: var(--text-3); }
+.marcador__mov {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px 7px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 800;
+}
+.marcador__mov.is-up { color: var(--pos); background: var(--pos-soft); }
+.marcador__mov.is-down { color: var(--neg); background: var(--neg-soft); }
+.marcador__gap {
+  font-size: var(--fs-md); color: var(--text-2); line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* La racha: ocho jornadas de un vistazo. Es información, no adorno — dice si vas de
+   subida. Las provisionales van huecas, porque todavía pueden cambiar. */
+.marcador__racha { display: flex; align-items: flex-end; gap: 3px; height: 26px; margin-top: 1px; }
+.marcador__racha i {
+  flex: 1 1 0; min-width: 3px; border-radius: 2px 2px 1px 1px;
+  background: var(--accent); opacity: 0.75;
+}
+.marcador__racha i:last-child { opacity: 1; }
+.marcador__racha i.is-neg { background: var(--neg); }
+.marcador__racha i.is-prov {
+  background: none; border: 1px dashed var(--accent-line);
+}
+
 /* ------------------------------------------------------- avisos y estados */
 .notice {
   display: flex; gap: 10px; padding: 12px 13px; border-radius: var(--r-md); margin-bottom: 10px;

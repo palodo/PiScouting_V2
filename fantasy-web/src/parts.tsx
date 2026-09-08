@@ -3,7 +3,10 @@
    plantilla del rival) y la fila del feed.
    ========================================================================== */
 import type { ReactNode } from "react";
-import { FEED_ICON, IconBolt, IconCalendar, IconClock, IconGavel, IconInfo, IconLock, IconTrendUp } from "./icons";
+import {
+  FEED_ICON, IconBolt, IconCalendar, IconClock, IconGavel, IconInfo, IconLock,
+  IconTrendDown, IconTrendUp,
+} from "./icons";
 import { Photo, Trend, fmtWhen, prettyName, prettyTeam, relTime, stripEmoji } from "./ui";
 
 export type RowPlayer = {
@@ -204,6 +207,60 @@ export function Leyenda() {
       <span><IconLock size={11} strokeWidth={2.4} />cláusula bloqueada</span>
       <span><IconTrendUp size={11} strokeWidth={2.4} />cambio de valor</span>
     </div>
+  );
+}
+
+/* --------------------------------------------------------------- dónde vas */
+/* Lo primero que se quiere saber al abrir la liga, y hasta ahora no estaba en esta
+   pantalla: había que irse a la pestaña de clasificación a buscarlo. El protagonista es
+   el PUESTO —que es lo que se siente— y los puntos son la prueba. La racha de la derecha
+   no es adorno: es la única forma de ver de un vistazo si vas de subida o de bajada. */
+export function Marcador({ d, onTabla }: { d: any; onTabla?: () => void }) {
+  if (!d) return null;
+  const podio = d.pos <= 3 && d.de > 2 ? ["oro", "plata", "bronce"][d.pos - 1] : "";
+  const racha: any[] = d.racha ?? [];
+  const tope = Math.max(...racha.map((r) => Math.abs(r.points)), 1);
+  const subida = d.delta_pos ?? 0;
+
+  return (
+    <button className="marcador" onClick={onTabla} disabled={!onTabla}>
+      <div className={"marcador__pos" + (podio ? ` marcador__pos--${podio}` : "")}>
+        <b className="num">{d.pos}<span>º</span></b>
+        <span>de {d.de}</span>
+      </div>
+
+      <div className="marcador__b">
+        <div className="marcador__pts">
+          <b className="num">{d.points}</b>
+          <span>puntos</span>
+          {subida !== 0 && (
+            <span className={"marcador__mov" + (subida > 0 ? " is-up" : " is-down")}>
+              {subida > 0 ? <IconTrendUp size={12} strokeWidth={2.6} />
+                : <IconTrendDown size={12} strokeWidth={2.6} />}
+              {Math.abs(subida)}
+            </span>
+          )}
+        </div>
+
+        <div className="marcador__gap">
+          {d.jugadas === 0
+            ? "Aún no has puntuado"
+            : d.lider
+              ? (d.gap ? `Líder, ${d.gap} por delante de ${d.rival}` : "Líder de la liga")
+              : `A ${d.gap} de ${d.rival}`}
+        </div>
+
+        {racha.length > 1 && (
+          <div className="marcador__racha" aria-hidden="true">
+            {racha.map((r) => (
+              <i key={r.jornada} title={`Jornada ${r.jornada}: ${r.points}`}
+                className={r.points < 0 ? "is-neg" : r.complete === false ? "is-prov" : ""}
+                style={{ height: `${Math.max(3, (Math.abs(r.points) / tope) * 26)}px` }} />
+            ))}
+          </div>
+        )}
+      </div>
+    </button>
   );
 }
 

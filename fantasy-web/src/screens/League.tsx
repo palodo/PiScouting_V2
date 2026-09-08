@@ -9,7 +9,7 @@ import {
   IconAlert, IconArrowLeft, IconCalendar, IconCheck, IconCopy, IconLock,
   IconMarket, IconPlay, IconSearch, IconSquad, IconTrophy,
 } from "../icons";
-import { ClauseMeta, Delta, Leyenda, PlayerRow, RestMeta, fp, phaseInfo } from "../parts";
+import { ClauseMeta, Delta, Leyenda, Marcador, PlayerRow, RestMeta, fp, phaseInfo } from "../parts";
 import {
   Empty, HalfCourt, Loading, Photo, Section, prettyName, useCountdown,
 } from "../ui";
@@ -272,7 +272,8 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
         {tab === "equipo" && (
           <TeamTab lg={lg} squad={squad} starters={starters} bench={bench} busy={busy}
             ph={ph} left={phaseLeft} onOpen={openPlayer} onToggle={toggleStarter}
-            onMatches={openMatches}
+            onMatches={openMatches} marcador={data.marcador}
+            onTabla={() => setTab("liga")}
             onScoring={() => setScoring(true)}
             onEditLineup={() => setEditandoQuinteto(true)} />
         )}
@@ -445,7 +446,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
 
 /* ------------------------------------------------------------------ equipo */
 function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onScoring,
-  onMatches, onEditLineup }: any) {
+  onMatches, onEditLineup, marcador, onTabla }: any) {
   const gone = squad.filter((p: any) => p.departed);
   const goneStarters = gone.filter((p: any) => p.starter);
   // el que descansa suma cero aunque esté sano: mejor enterarse antes de cerrar el quinteto
@@ -454,6 +455,9 @@ function TeamTab({ lg, squad, starters, bench, busy, ph, left, onOpen, onScoring
 
   return (
     <>
+      {/* Dónde vas: lo primero, antes que cualquier aviso. */}
+      <Marcador d={marcador} onTabla={onTabla} />
+
       {ph.phase === "alineacion" && (
         <div className="notice notice--info">
           <span className="notice__ico"><IconAlert size={18} /></span>

@@ -2797,6 +2797,66 @@ def standings(session: Session, league: FantasyLeague) -> list[dict]:
     return rows
 
 
+def mi_marcador(session: Session, league: FantasyLeague,
+                member: Optional[FantasyMember]) -> Optional[dict]:
+    """Dónde vas: puesto, puntos, a cuánto tienes al de delante y cómo va tu racha.
+
+    Es lo primero que se quiere saber al abrir la liga y hasta ahora no estaba en ninguna
+    parte de esa pantalla: había que irse a la pestaña de clasificación a buscarlo. El
+    puesto de cada jornada se reconstruye acumulando los desgloses, que es la única forma
+    de poder decir "has subido dos puestos" sin guardar nada más.
+    """
+    if not member:
+        return None
+    scores = session.exec(select(FantasyJornadaScore).where(
+        FantasyJornadaScore.league_id == league.id)).all()
+    miembros = {m.id: m.manager_name for m in _members(session, league.id)}
+
+    # acumulado por jornada -> puesto de cada uno en cada momento
+    jornadas = sorted({sc.jornada for sc in scores})
+    acumulado: dict[int, float] = {mid: 0.0 for mid in miembros}
+    puestos: list[dict[int, int]] = []
+    mios: list[dict] = []
+    for j in jornadas:
+        for sc in scores:
+            if sc.jornada == j:
+                acumulado[sc.member_id] = round(acumulado.get(sc.member_id, 0.0) + sc.points, 1)
+        orden = sorted(acumulado.items(), key=lambda kv: -kv[1])
+        tabla, ant = {}, None
+        for i, (mid, pts) in enumerate(orden):
+            tabla[mid] = tabla[orden[i - 1][0]] if i and pts == ant else i + 1
+            ant = pts
+        puestos.append(tabla)
+        sc_mio = next((x for x in scores if x.jornada == j and x.member_id == member.id), None)
+        if sc_mio:
+            mios.append({"jornada": j, "points": sc_mio.points,
+                         "complete": sc_mio.complete, "pos": tabla.get(member.id)})
+
+    orden = sorted(miembros, key=lambda mid: -acumulado.get(mid, 0.0))
+    pos = (puestos[-1].get(member.id) if puestos else None) or 1
+    delta = None
+    if len(puestos) >= 2 and puestos[-2].get(member.id) and puestos[-1].get(member.id):
+        delta = puestos[-2][member.id] - puestos[-1][member.id]   # positivo = has subido
+
+    # el de delante: a quién persigues. Si vas primero, a quién le sacas ventaja.
+    yo = orden.index(member.id) if member.id in orden else 0
+    vecino = orden[yo - 1] if yo > 0 else (orden[1] if len(orden) > 1 else None)
+    hueco = None
+    if vecino is not None:
+        hueco = round(abs(acumulado.get(vecino, 0.0) - acumulado.get(member.id, 0.0)), 1)
+
+    return {
+        "pos": pos, "de": len(miembros), "points": round(acumulado.get(member.id, 0.0), 1),
+        "lider": yo == 0,
+        "rival": miembros.get(vecino) if vecino is not None else None,
+        "gap": hueco,
+        "delta_pos": delta,
+        "jugadas": len(mios),
+        # las últimas ocho, que es lo que cabe sin que la tira se vuelva ilegible
+        "racha": mios[-8:],
+    }
+
+
 def my_squad(session: Session, league: FantasyLeague, member: FantasyMember) -> list[dict]:
     # all_priced ya trae nombre, equipo y stats, así que no hace falta volver a recorrer
     # los boxscores con conference_games ni pedir el price_map por separado.
