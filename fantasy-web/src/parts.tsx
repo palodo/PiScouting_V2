@@ -3,7 +3,7 @@
    plantilla del rival) y la fila del feed.
    ========================================================================== */
 import type { ReactNode } from "react";
-import { FEED_ICON, IconBolt, IconCalendar, IconGavel, IconInfo, IconLock, IconTrendUp } from "./icons";
+import { FEED_ICON, IconBolt, IconCalendar, IconClock, IconGavel, IconInfo, IconLock, IconTrendUp } from "./icons";
 import { Photo, Trend, fmtWhen, prettyName, prettyTeam, relTime, stripEmoji } from "./ui";
 
 export type RowPlayer = {
@@ -203,6 +203,46 @@ export function Leyenda() {
       <span><IconBolt size={11} strokeWidth={2.4} />cláusula de rescisión</span>
       <span><IconLock size={11} strokeWidth={2.4} />cláusula bloqueada</span>
       <span><IconTrendUp size={11} strokeWidth={2.4} />cambio de valor</span>
+    </div>
+  );
+}
+
+/* ------------------------------------------------- jornadas a medias (aplazados) */
+/** Lo que le falta a una jornada para ser definitiva, dicho como se diría en voz alta.
+ *  Son dos motivos distintos: un partido aplazado (todavía no se ha jugado) o un acta que
+ *  la FEB no ha publicado (jugado, pero sin boxscore). En los dos casos hay gente cuyos
+ *  puntos aún no están, así que la jornada se enseña como provisional. */
+export function faltaTexto(faltan?: string[], sinActa?: string[]) {
+  if (faltan?.length) {
+    return faltan.length === 1
+      ? `Falta por jugarse ${faltan[0]}.`
+      : `Faltan ${faltan.length} partidos por jugarse.`;
+  }
+  if (sinActa?.length) {
+    return sinActa.length === 1
+      ? `Falta el acta de ${sinActa[0]}.`
+      : `Faltan las actas de ${sinActa.length} partidos.`;
+  }
+  return "";
+}
+
+/** El aviso de que una jornada todavía puede cambiar. `jornada` en plural para la general. */
+export function Provisional({ jornada, faltan, sinActa, onVer }: {
+  jornada?: number; faltan?: string[]; sinActa?: string[]; onVer?: () => void;
+}) {
+  const texto = faltaTexto(faltan, sinActa);
+  if (!texto) return null;
+  return (
+    <div className="notice notice--info">
+      <span className="notice__ico"><IconClock size={18} /></span>
+      <div>
+        <b>{jornada ? `Jornada ${jornada} provisional` : "Puntos provisionales"}</b>
+        <span>
+          {texto} Los puntos de esa jornada subirán solos en cuanto se juegue, con el
+          quinteto que tenías puesto ese día.
+        </span>
+        {onVer && <button className="linkbtn" onClick={onVer}>Ver los partidos</button>}
+      </div>
     </div>
   );
 }

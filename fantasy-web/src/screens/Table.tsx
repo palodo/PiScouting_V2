@@ -3,12 +3,12 @@
    ========================================================================== */
 import { useEffect, useRef, useState } from "react";
 import { IconChevronRight, IconTrophy } from "../icons";
-import { PfBox } from "../parts";
+import { PfBox, Provisional } from "../parts";
 import { Empty, Photo, Section, Segmented, prettyName, prettyTeam } from "../ui";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer, onResumen }: any) {
+export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer, onResumen, onMatches }: any) {
   const rows: any[] = jr?.rows ?? [];
   const [view, setView] = useState<"jornada" | "general">(rows.length ? "jornada" : "general");
 
@@ -22,8 +22,8 @@ export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer,
       </div>
       {view === "jornada"
         ? <JornadaView jr={jr} myId={data.my_member_id} onJornada={onJornada}
-            onManager={onManager} onPlayer={onPlayer} />
-        : <General data={data} lg={lg} onManager={onManager} />}
+            onManager={onManager} onPlayer={onPlayer} onMatches={onMatches} />
+        : <General data={data} lg={lg} onManager={onManager} onMatches={onMatches} />}
 
       {onResumen && (
         <button className="linkbtn" style={{ margin: "16px auto 0" }} onClick={onResumen}>
@@ -35,7 +35,7 @@ export default function TableTab({ data, lg, jr, onJornada, onManager, onPlayer,
 }
 
 /* ------------------------------------------------------------- por jornada */
-function JornadaView({ jr, myId, onJornada, onManager, onPlayer }: any) {
+function JornadaView({ jr, myId, onJornada, onManager, onPlayer, onMatches }: any) {
   const rows: any[] = jr?.rows ?? [];
   const js: number[] = jr?.jornadas ?? [];
   const strip = useRef<HTMLDivElement>(null);
@@ -76,6 +76,13 @@ function JornadaView({ jr, myId, onJornada, onManager, onPlayer }: any) {
             onClick={() => onJornada(j)}>J{j}</button>
         ))}
       </div>
+
+      {/* con un aplazado por medio esta clasificación todavía puede moverse: hay que
+          decirlo aquí, que es donde se mira quién ganó la jornada */}
+      {jr?.completa === false && (
+        <Provisional jornada={jr.jornada} faltan={jr.faltan} sinActa={jr.sin_acta}
+          onVer={onMatches ? () => onMatches(jr.jornada) : undefined} />
+      )}
 
       {me && (
         <div className="jhero">
@@ -177,15 +184,24 @@ function JornadaRow({ p, bench, onOpen }: { p: any; bench?: boolean; onOpen?: ()
       </div>
       {p.played
         ? <PfBox value={p.points} muted={bench} />
-        : <span className="dnp">{p.rests ? "Descansa" : "No jugó"}</span>}
+        // "No jugó" en un aplazado es mentira y se lee como puntos perdidos: su partido
+        // está por disputarse y sumará cuando se juegue.
+        : <span className="dnp">{p.pending ? "Aplazado" : p.rests ? "Descansa" : "No jugó"}</span>}
     </div>
   );
 }
 
 /* ---------------------------------------------------------------- general */
-function General({ data, lg, onManager }: any) {
+function General({ data, lg, onManager, onMatches }: any) {
+  // Jornadas ya puntuadas a las que les falta algún partido: mientras estén ahí, el
+  // acumulado de todo el mundo puede moverse solo, y eso hay que avisarlo donde se mira.
+  const inc: any[] = data.jornadas_incompletas ?? [];
   return (
     <>
+      {inc.map((x) => (
+        <Provisional key={x.jornada} jornada={x.jornada} faltan={x.faltan}
+          sinActa={x.sin_acta} onVer={onMatches ? () => onMatches(x.jornada) : undefined} />
+      ))}
       <div className="list">
         {data.standings.map((r: any) => (
           <button key={r.member_id}

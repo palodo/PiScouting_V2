@@ -7,7 +7,7 @@ import {
   IconBolt, IconCalendar, IconCheck, IconClock, IconClose, IconCoin, IconCopy, IconGavel,
   IconLock, IconMinus, IconPlus, IconShare, IconSquad, IconTrophy, IconWhatsApp,
 } from "../icons";
-import { PfBox, PlayerRow, fp, lockLabel } from "../parts";
+import { PfBox, PlayerRow, Provisional, fp, lockLabel } from "../parts";
 import {
   HalfCourt, Loading, Photo, Section, Sheet, SheetClose, fmtWhen, fullName, prettyName,
   prettyTeam,
@@ -1091,6 +1091,14 @@ export function ResumenSheet({ leagueId, jornada, onClose, onPlayer }: {
         </div>
         <SheetClose onClose={onClose} />
       </div>
+
+      {/* el palmarés se canta igual, pero si falta un partido todavía puede cambiar de
+          dueño: más vale decirlo antes de que alguien se lo crea */}
+      {d?.completa === false && (
+        <div style={{ marginTop: 14 }}>
+          <Provisional faltan={d.faltan} sinActa={d.sin_acta} />
+        </div>
+      )}
 
       {err && <p className="hint" style={{ marginTop: 14 }}>No se pudo cargar: {err}</p>}
       {!d && !err && <Loading label="Repasando la jornada" />}

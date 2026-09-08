@@ -285,7 +285,7 @@ export default function League({ id, me, onBack }: { id: number; me: Me; onBack:
           <TableTab data={data} lg={lg} jr={jr}
             onResumen={(lg.current_jornada ?? 0) > 0 ? () => setResumenJ(lg.current_jornada) : undefined}
             onJornada={(j: number) => api.jornada(id, j).then(setJr).catch(() => {})}
-            onManager={openManager} onPlayer={openPlayer} />
+            onManager={openManager} onPlayer={openPlayer} onMatches={openMatches} />
         )}
 
         {tab === "quiniela" && (

@@ -721,6 +721,8 @@ def fantasy_league_detail(league_id: int, user: User = Depends(auth.get_current_
         "my_squad": fantasy_mod.my_squad(session, lg, member) if member else [],
         "feed": fantasy_mod.feed(session, league_id, 30),
         "jornada_ranking": fantasy_mod.jornada_ranking(session, lg),
+        # jornadas ya puntuadas a las que les falta un aplazado: sus puntos subirán solos
+        "jornadas_incompletas": fantasy_mod.jornadas_incompletas(session, lg),
     }
 
 

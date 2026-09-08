@@ -410,27 +410,62 @@ def _weekly_slot(after: datetime, weekday: int, hour: int) -> datetime:
 MATCH_LEN_H = 3  # lo que se le da a un partido desde el salto para estar acabado
 
 
+def dia_principal(dias: list[date]) -> Optional[date]:
+    """El día en el que se juega la jornada: el que reúne a la mayoría.
+
+    La FEB no dice si un partido se ha movido, así que se deduce comparando con este día.
+    A igualdad de partidos gana el más temprano, que es el fin de semana de la jornada.
+    """
+    cuenta: dict[date, int] = {}
+    for d in dias:
+        if d:
+            cuenta[d] = cuenta.get(d, 0) + 1
+    return max(cuenta, key=lambda d: (cuenta[d], -d.toordinal())) if cuenta else None
+
+
+def es_aplazado(day: Optional[date], principal: Optional[date]) -> bool:
+    """Un partido está aplazado si se juega dos días o más después del grueso de la jornada."""
+    return bool(day and principal and (day - principal).days >= 2)
+
+
 def jornada_real_window(session: Session, league: FantasyLeague, jornada: int) -> tuple:
     """(primer salto, final) de una jornada según el calendario REAL de la FEB.
 
     Se prefiere `start_at` (fecha y hora exactas del partido, que es lo que la FEB publica
     mientras está por jugarse); si de un partido solo se sabe el día se usa la hora de
     partido de la liga. (None, None) si esa jornada no tiene calendario todavía.
+
+    Los APLAZADOS no estiran el final: la jornada acaba cuando acaba su fin de semana,
+    aunque quede un partido suelto tres semanas más tarde. Antes se esperaba a él y eso
+    dejaba la liga entera parada (sin mercado y sin poder tocar el quinteto) todo ese
+    tiempo; ahora la jornada se cierra a su hora y se puntúa provisional. Sí estiran el
+    principio: en cuanto se juega el primer partido, aunque sea un adelantado, el quinteto
+    tiene que estar cerrado.
     """
     q = select(Match.match_date, Match.start_at).where(Match.competition == league.competition,
                                                        Match.season == league.season,
                                                        Match.jornada_num == jornada)
     if league.grupo:
         q = q.where(Match.grupo == league.grupo)
-    starts, ends = [], []
-    for day, start_at in session.exec(q).all():
+    filas = session.exec(q).all()
+    principal = dia_principal([day for day, _ in filas])
+    starts, ends, ends_todos = [], [], []
+    for day, start_at in filas:
         if start_at:
-            starts.append(start_at)
-            ends.append(start_at + timedelta(hours=MATCH_LEN_H))
+            ini, fin = start_at, start_at + timedelta(hours=MATCH_LEN_H)
         elif day:
-            starts.append(_at(day, league.play_hour))
-            ends.append(_at(day, 23, 59))
-    return (min(starts), max(ends)) if starts else (None, None)
+            ini, fin = _at(day, league.play_hour), _at(day, 23, 59)
+        else:
+            continue
+        starts.append(ini)
+        ends_todos.append(fin)
+        if not es_aplazado(day, principal):
+            ends.append(fin)
+    if not starts:
+        return (None, None)
+    # Si TODA la jornada se ha movido no hay aplazados que valgan: es la jornada entera la
+    # que cambia de fecha, y el final es el suyo nuevo.
+    return min(starts), max(ends or ends_todos)
 
 
 def _first_kickoff(league: FantasyLeague, now: datetime) -> datetime:
@@ -491,8 +526,9 @@ def league_state(session: Session, league: FantasyLeague) -> dict:
     elif now < kickoff:
         phase, until = "alineacion", kickoff
     else:
-        # La jornada no se da por terminada mientras le falte algún partido por jugarse:
-        # así un aplazamiento no deja a nadie con un cero que no le toca.
+        # `pending` es informativo: son los partidos de la jornada que aún no se han
+        # disputado. Ya no alarga la fase (un aplazado tenía la liga parada semanas); lo
+        # que hace es que la jornada se puntúe provisional y se complete después.
         phase, until = "jornada", ends
         pending = pending_matches(session, league, nxt)
     return {"phase": phase, "jornada": nxt, "kickoff_at": kickoff, "ends_at": ends,
@@ -701,6 +737,10 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
     tandas diarias mientras el mercado esté en fase de mercado.
     """
     changed = False
+    # Lo primero: rematar las jornadas que se puntuaron a medias, por si mientras tanto se
+    # ha jugado el partido que faltaba (es el cron horario quien trae el resultado).
+    if completar(session, league):
+        changed = True
     if league.kickoff_at is None and league.current_jornada < league.max_jornada:
         # Liga creada antes de que existiera el calendario (o en modo real sin fechas).
         league.kickoff_at = _first_kickoff(league, utcnow())
@@ -722,11 +762,12 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
         if phase == "jornada":
             # Lo primero al saltar: dejar por escrito con qué quinteto entra cada uno.
             freeze_lineups(session, league, state["jornada"])
-            # Jugada entera (y sin aplazamientos pendientes): se puntúa sola.
+            # Pasada su hora, se puntúa sola. Ya no se espera a los aplazados: la jornada
+            # se cierra con lo jugado y `completar()` sube después lo que falte.
             # En simulación por pasos no hay reloj (`ends_at` es None): la jornada
             # la cierra el dueño con el tercer paso, aquí no se avanza sola.
             if state["ends_at"] is not None and now >= state["ends_at"] \
-                    and not state["pending"] and advance(session, league).get("ok"):
+                    and advance(session, league).get("ok"):
                 changed = True
                 continue
             break
@@ -1661,6 +1702,60 @@ def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> li
     return faltan
 
 
+def sin_acta(session: Session, league: FantasyLeague, jornada: int) -> list[str]:
+    """Partidos ya jugados de esa jornada cuyo BOXSCORE todavía no ha llegado.
+
+    La FEB publica el marcador en el calendario y el acta por otro lado, y a veces tarda
+    (o falla). Mientras no esté, sus jugadores no tienen líneas y sumarían cero: es el
+    mismo cero injusto que el de un aplazado, solo que más difícil de ver porque el
+    partido figura como jugado. Así que la jornada se queda provisional también por esto y
+    se recalcula cuando entre el acta.
+
+    Las incomparecencias (`details_unavailable`) no cuentan: hay marcador de oficio pero
+    LiveStats no va a servir acta nunca, así que esperar a ella sería esperar para siempre.
+    """
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    jugados = [m for m in session.exec(q).all()
+               if m.home_score is not None and m.away_score is not None
+               and not m.details_unavailable]
+    if not jugados:
+        return []
+    con_acta = set(session.exec(select(PlayerMatchStat.match_id).where(
+        PlayerMatchStat.match_id.in_([m.id for m in jugados]))).all())
+    faltan = []
+    for m in jugados:
+        if m.id not in con_acta:
+            local = session.get(Team, m.home_team_id) if m.home_team_id else None
+            visit = session.get(Team, m.away_team_id) if m.away_team_id else None
+            faltan.append(f"{local.name if local else '?'} - {visit.name if visit else '?'}")
+    return faltan
+
+
+def _equipos_pendientes(session: Session, league: FantasyLeague, jornada: int) -> set[int]:
+    """Equipos cuyo partido de esa jornada aún no cuenta: sin jugarse o sin acta."""
+    q = select(Match).where(Match.competition == league.competition,
+                            Match.season == league.season,
+                            Match.jornada_num == jornada)
+    if league.grupo:
+        q = q.where(Match.grupo == league.grupo)
+    ms = session.exec(q).all()
+    jugados = [m for m in ms if m.home_score is not None and m.away_score is not None
+               and not m.details_unavailable]
+    con_acta = set(session.exec(select(PlayerMatchStat.match_id).where(
+        PlayerMatchStat.match_id.in_([m.id for m in jugados]))).all()) if jugados else set()
+    out: set[int] = set()
+    for m in ms:
+        sin_jugar = m.home_score is None or m.away_score is None
+        sin_datos = (not sin_jugar and not m.details_unavailable and m.id not in con_acta)
+        if sin_jugar or sin_datos:
+            out.update(x for x in (m.home_team_id, m.away_team_id) if x)
+    return out
+
+
 def sim_pendientes(session: Session, league: FantasyLeague, jornada: int) -> list[str]:
     """Los que en simulación todavía no se han disputado, con nombres, para poder decir
     exactamente qué falta antes de cerrar la jornada."""
@@ -1711,13 +1806,7 @@ def jornada_matches(session: Session, league: FantasyLeague, jornada: int) -> li
     if league.grupo:
         q = q.where(Match.grupo == league.grupo)
     ms = session.exec(q).all()
-
-    dias: dict[date, int] = {}
-    for m in ms:
-        if m.match_date:
-            dias[m.match_date] = dias.get(m.match_date, 0) + 1
-    principal = max(dias, key=lambda d: (dias[d], -d.toordinal())) if dias else None
-
+    principal = dia_principal([m.match_date for m in ms])
     now = utcnow()
     fin_partido = timedelta(hours=MATCH_LEN_H)
     # En simulación la base ya tiene TODOS los resultados, así que sin este filtro la
@@ -1740,9 +1829,15 @@ def jornada_matches(session: Session, league: FantasyLeague, jornada: int) -> li
         else:
             estado = "pendiente"
         movido = None
-        if principal and m.match_date and not jugado:
-            delta = (m.match_date - principal).days
-            movido = "adelantado" if delta <= -2 else "aplazado" if delta >= 2 else None
+        if principal and not jugado:
+            # Aplazado es tanto el que ya tiene fecha nueva y posterior como el que sigue
+            # sin jugarse dos días después del fin de semana de la jornada: cuando la FEB
+            # mueve un partido a veces tarda en publicar el nuevo día, y hasta entonces
+            # aparecía como un partido suelto sin explicación.
+            if es_aplazado(m.match_date, principal) or (now.date() - principal).days >= 2:
+                movido = "aplazado"
+            elif m.match_date and (m.match_date - principal).days <= -2:
+                movido = "adelantado"
         out.append({
             "match_id": m.id, "jornada": jornada,
             "home": local.name if local else "?", "away": visit.name if visit else "?",
@@ -1900,18 +1995,16 @@ def sim_jugar(session: Session, league: FantasyLeague, cuantos: int = 0) -> dict
 def sim_finalizar(session: Session, league: FantasyLeague) -> dict:
     """Paso 3 · domingo noche: se cierra la jornada y se puntúa.
 
-    No se cierra con partidos por disputar: quien tuviera a alguien de esos equipos se
-    comería un cero que no le toca, y eso no hay forma de deshacerlo después.
+    Si a la base le faltara el resultado de algún partido, la jornada se cierra igual y
+    queda marcada como incompleta: sus puntos son provisionales y suben solos en cuanto
+    aparezca el resultado. Nadie se come un cero definitivo que no le toca.
     """
     if not league.sim_mode:
         return advance(session, league)
     if sim_step_de(session, league) != 1:
         return {"ok": False, "message": "La jornada todavía no ha empezado"}
     nxt = league.current_jornada + 1
-    # Domingo noche: se disputa lo que quedara y se cierra. `advance` comprueba por su
-    # cuenta que todos los partidos tienen resultado de verdad en la base y se niega a
-    # puntuar si falta alguno, que es la garantía que de verdad importa: quien tuviera a
-    # alguien de un equipo sin jugar se comería un cero imposible de deshacer.
+    # Domingo noche: se disputa lo que quedara y se cierra.
     total = len(sim_partidos(session, league, nxt))
     quedaban = total - league.sim_played
     league.sim_played = total
@@ -1930,16 +2023,44 @@ def sim_finalizar(session: Session, league: FantasyLeague) -> dict:
     return res
 
 
+def jornada_falta(session: Session, league: FantasyLeague, jornada: int) -> dict:
+    """Lo que impide dar una jornada por definitiva, con los dos motivos separados.
+
+    `faltan` son partidos por disputarse (un aplazado) y `sin_acta` partidos ya jugados
+    cuyo boxscore no ha llegado. Los dos dejan a alguien con un cero que no le toca, así
+    que los dos mantienen la jornada en provisional; pero se cuentan aparte porque al
+    usuario hay que decírselo con palabras distintas.
+    """
+    faltan = pending_matches(session, league, jornada)
+    actas = sin_acta(session, league, jornada)
+    return {"faltan": faltan, "sin_acta": actas, "completa": not faltan and not actas}
+
+
+def _falta_texto(faltan: list[str], sin_acta_: list[str] = ()) -> str:
+    """"falta X" / "faltan N partidos", que es como se dice en toda la app."""
+    if faltan:
+        return (f"falta por jugarse {faltan[0]}" if len(faltan) == 1
+                else f"faltan {len(faltan)} partidos por jugarse")
+    if sin_acta_:
+        return (f"falta el acta de {sin_acta_[0]}" if len(sin_acta_) == 1
+                else f"faltan las actas de {len(sin_acta_)} partidos")
+    return ""
+
+
 def advance(session: Session, league: FantasyLeague) -> dict:
+    """Puntúa la jornada y pasa a la siguiente.
+
+    Se puntúa con lo que se haya jugado. Si queda algún partido (un aplazado), la jornada
+    se cierra igual y queda marcada como incompleta: sus puntos son provisionales y
+    `completar()` los sube cuando la FEB publique el resultado. Antes se plantaba aquí y
+    la liga no se movía, lo que en la práctica costaba una semana de mercado a todos por
+    un partido que a lo mejor no le tocaba a nadie.
+    """
     if league.current_jornada >= league.max_jornada:
         return {"ok": False, "done": True, "message": "La temporada ya está completa"}
     nxt = league.current_jornada + 1
-    faltan = pending_matches(session, league, nxt)
-    if faltan:
-        return {"ok": False, "pending": faltan, "jornada": nxt,
-                "message": (f"La jornada {nxt} no está completa: falta por jugarse "
-                            + (f"{faltan[0]}" if len(faltan) == 1 else f"{len(faltan)} partidos")
-                            + ". Se puntuará cuando se dispute.")}
+    falta = jornada_falta(session, league, nxt)
+    faltan, actas, completa = falta["faltan"], falta["sin_acta"], falta["completa"]
     pts = jornada_points(session, league, nxt)
     members = session.exec(select(FantasyMember).where(FantasyMember.league_id == league.id)).all()
     breakdown = []
@@ -1955,21 +2076,22 @@ def advance(session: Session, league: FantasyLeague) -> dict:
         # se guarda el desglose (con el quinteto de ESE momento): en el miembro solo queda
         # el acumulado, y la plantilla cambiará antes de que nadie mire atrás
         session.add(FantasyJornadaScore(league_id=league.id, member_id=m.id, jornada=nxt,
-                                        points=gained, starters=json.dumps(starters)))
+                                        points=gained, starters=json.dumps(starters),
+                                        complete=completa))
         breakdown.append({"member_id": m.id, "manager": m.manager_name, "gained": gained})
     league.current_jornada = nxt
-    # las apuestas se liquidan con los mismos resultados que acaban de puntuar
-    try:
-        from . import bets as bets_mod
-        bets_mod.resolver(session, league, nxt)
-        bets_mod.quiniela_resolver(session, league, nxt)
-    except Exception as e:  # noqa: BLE001 - una apuesta rota no puede bloquear la jornada
-        print(f"[apuestas] no se pudieron resolver las de la jornada {nxt}: {e}", flush=True)
+    # Las apuestas se liquidan con los mismos resultados que acaban de puntuar. Si falta
+    # algún partido se esperan: una pata sobre el aplazado se daría por anulada (dinero
+    # devuelto) cuando en realidad todavía se va a jugar. Las resuelve `completar()`.
+    if completa:
+        _resolver_apuestas(session, league, nxt)
     _after_jornada(session, league)
     session.add(league)
     best = max(breakdown, key=lambda b: b["gained"], default=None)
+    coletilla = "" if completa else f" · provisional, {_falta_texto(faltan, actas)}"
     _log(session, league.id, "jornada",
-         f"📅 Jornada {nxt} puntuada" + (f" · mejor: {best['manager']} ({best['gained']} pts)" if best else ""))
+         f"📅 Jornada {nxt} puntuada"
+         + (f" · mejor: {best['manager']} ({best['gained']} pts)" if best else "") + coletilla)
     # a cada uno, lo suyo: sus puntos y en qué puesto ha quedado esa jornada
     orden = sorted(breakdown, key=lambda b: -b["gained"])
     for i, row in enumerate(orden):
@@ -1978,11 +2100,103 @@ def advance(session: Session, league: FantasyLeague) -> dict:
         cuerpo = (f"{pos}º de {len(orden)}" if len(orden) > 1 else "")
         if best and row["member_id"] == best["member_id"] and len(orden) > 1:
             cuerpo = f"¡Has ganado la jornada! {pos}º de {len(orden)}"
+        if not completa:
+            # nadie ha ganado nada todavía: lo que toca decir es que esto puede cambiar
+            cuerpo = (f"Provisional: {_falta_texto(faltan, actas)}"
+                      + (f" · {pos}º de {len(orden)}" if len(orden) > 1 else ""))
         _notify(session, league, row["member_id"], "jornada",
                 f"Jornada {nxt} · has hecho {row['gained']} puntos", cuerpo)
     session.commit()
-    return {"ok": True, "jornada": nxt, "breakdown": breakdown,
+    return {"ok": True, "jornada": nxt, "breakdown": breakdown, "pending": faltan,
+            "sin_acta": actas, "complete": completa,
             "done": league.current_jornada >= league.max_jornada}
+
+
+def _resolver_apuestas(session: Session, league: FantasyLeague, jornada: int) -> None:
+    try:
+        from . import bets as bets_mod
+        bets_mod.resolver(session, league, jornada)
+        bets_mod.quiniela_resolver(session, league, jornada)
+    except Exception as e:  # noqa: BLE001 - una apuesta rota no puede bloquear la jornada
+        print(f"[apuestas] no se pudieron resolver las de la jornada {jornada}: {e}", flush=True)
+
+
+def jornadas_incompletas(session: Session, league: FantasyLeague) -> list[dict]:
+    """Jornadas ya puntuadas a las que todavía les falta algún partido por disputarse.
+
+    Es lo que la app enseña para que se entienda por qué unos puntos pueden subir solos.
+    """
+    js = sorted({sc.jornada for sc in session.exec(select(FantasyJornadaScore).where(
+        FantasyJornadaScore.league_id == league.id,
+        FantasyJornadaScore.complete == False)).all()})  # noqa: E712
+    out = []
+    for j in js:
+        falta = jornada_falta(session, league, j)
+        if not falta["completa"]:
+            out.append({"jornada": j, "faltan": falta["faltan"],
+                        "sin_acta": falta["sin_acta"]})
+    return out
+
+
+def completar(session: Session, league: FantasyLeague) -> list[dict]:
+    """Rehace las jornadas que se puntuaron a medias, ahora que hay más resultados.
+
+    Se recalcula sobre la MISMA foto del quinteto (`starters` de aquel día), así que da
+    igual lo que haya pasado con la plantilla entre medias: el que estaba alineado cuando
+    saltó la jornada es el que suma. Solo se mueve la diferencia, de modo que pasar dos
+    veces por aquí no regala puntos. Idempotente: es lo que permite llamarla en cada
+    `sync_market`.
+    """
+    filas = session.exec(select(FantasyJornadaScore).where(
+        FantasyJornadaScore.league_id == league.id,
+        FantasyJornadaScore.complete == False)).all()  # noqa: E712
+    if not filas:
+        return []
+    porjornada: dict[int, list] = {}
+    for sc in filas:
+        porjornada.setdefault(sc.jornada, []).append(sc)
+
+    cambios = []
+    for j, scores in sorted(porjornada.items()):
+        falta = jornada_falta(session, league, j)
+        completa = falta["completa"]
+        pts = jornada_points(session, league, j)
+        subidas = []
+        for sc in scores:
+            if not sc.starters:
+                # Sin foto no hay nada que recalcular: recalcular con la plantilla de hoy
+                # sería repartir los puntos de aquel día entre quien tenga al jugador
+                # ahora, y con `starters` vacío directamente los borraría. Se deja como
+                # está (no debería pasar: `advance` siempre guarda la foto).
+                sc.complete = True
+                session.add(sc)
+                continue
+            starters = json.loads(sc.starters)
+            nuevo = round(sum(pts.get(pid, 0.0) for pid in starters), 1)
+            delta = round(nuevo - sc.points, 1)
+            if delta:
+                m = session.get(FantasyMember, sc.member_id)
+                if m:
+                    m.total_points = round(m.total_points + delta, 1)
+                    session.add(m)
+                    subidas.append((m, delta, nuevo))
+                sc.points = nuevo
+            sc.complete = completa
+            session.add(sc)
+        if completa:
+            # ya está entera: se liquidan las apuestas que se habían quedado esperando
+            _resolver_apuestas(session, league, j)
+            _log(session, league.id, "jornada",
+                 f"✅ Jornada {j} completa: ya se ha jugado todo lo que faltaba")
+        for m, delta, nuevo in subidas:
+            señal = "+" if delta > 0 else ""
+            _notify(session, league, m.id, "jornada",
+                    f"Jornada {j} · {señal}{delta} puntos al jugarse lo que faltaba",
+                    f"Se te quedan en {nuevo}")
+        cambios.append({"jornada": j, "completa": completa, "faltan": falta["faltan"],
+                        "sin_acta": falta["sin_acta"], "movidos": len(subidas)})
+    session.commit()
+    return cambios
 
 
 def _recover_starters(league: FantasyLeague, picks: list, pts: dict, target: float,
@@ -2032,7 +2246,11 @@ def jornada_resumen(session: Session, league: FantasyLeague,
     """
     j = jornada if jornada is not None else league.current_jornada
     if j <= 0:
-        return {"jornada": 0, "lideres": [], "partidos": 0}
+        return {"jornada": 0, "lideres": [], "partidos": 0, "completa": True, "faltan": []}
+    # Lo primero que hay que decir de un resumen es si está entero: con un aplazado por
+    # medio, el palmarés que se canta aquí todavía puede cambiar.
+    falta = jornada_falta(session, league, j)
+    faltan, completa = falta["faltan"], falta["completa"]
 
     q = (
         select(Player.id, Player.name, Player.feb_code, Team.name,
@@ -2055,7 +2273,9 @@ def jornada_resumen(session: Session, league: FantasyLeague,
                       "val": val or 0, "pts": pts or 0, "treb": treb or 0,
                       "ast": ast or 0, "t3m": t3m or 0, "plus_minus": pm or 0})
     if not filas:
-        return {"jornada": j, "lideres": [], "partidos": 0}
+        return {"jornada": j, "lideres": [], "partidos": 0,
+                "completa": completa, "faltan": faltan,
+                "sin_acta": falta["sin_acta"]}
 
     # De quién es cada uno en ESTA liga, para poder decir "y lo tiene Marta".
     duenos = {
@@ -2080,7 +2300,8 @@ def jornada_resumen(session: Session, league: FantasyLeague,
             "linea": {k: mejor[k] for k in ("pts", "treb", "ast", "val")},
         })
 
-    return {"jornada": j, "lideres": lideres, "partidos": len(partidos)}
+    return {"jornada": j, "lideres": lideres, "partidos": len(partidos),
+            "completa": completa, "faltan": faltan, "sin_acta": falta["sin_acta"]}
 
 
 def directo(session: Session, league: FantasyLeague) -> dict:
@@ -2176,6 +2397,10 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
         pts = jornada_points(session, league, j)
         info = {r["player_id"]: r for r in all_priced(session, league)}
         descansan = resting_teams(session, league, j)
+        # Equipos cuyo partido de esa jornada está aún por disputarse (o sin acta): sus
+        # jugadores marcan cero, pero no es lo mismo que no haber jugado y decirlo mal es
+        # justo lo que hace pensar que la app se ha comido unos puntos.
+        pendientes = _equipos_pendientes(session, league, j)
         recuperadas = False
         for r in out:
             picks = picks_of(session, r["member_id"])
@@ -2206,6 +2431,8 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
                     "points": pts.get(pid, 0.0), "played": pid in pts,
                     # cero por descanso de calendario, no por quedarse en el banquillo
                     "rests": pid not in pts and d.get("team_id") in descansan,
+                    # su partido todavía no se ha jugado: el cero es provisional
+                    "pending": pid not in pts and d.get("team_id") in pendientes,
                     "starter": bool(saved is not None and pid in saved),
                     # ya no lo tienes: se enseña igual, pero se avisa
                     "gone": pid not in {p.player_id for p in picks},
@@ -2215,9 +2442,16 @@ def jornada_ranking(session: Session, league: FantasyLeague, jornada: Optional[i
         if recuperadas:
             session.commit()
 
-    js = sorted({s_.jornada for s_ in session.exec(
-        select(FantasyJornadaScore).where(FantasyJornadaScore.league_id == league.id)).all()})
-    return {"jornada": j, "rows": out, "jornadas": js}
+    todas = session.exec(select(FantasyJornadaScore).where(
+        FantasyJornadaScore.league_id == league.id)).all()
+    js = sorted({s_.jornada for s_ in todas})
+    # Si a esta jornada le falta algún partido, sus puntos son provisionales: se dice, para
+    # que quien la mire entienda por qué su posición puede moverse sola.
+    falta = (jornada_falta(session, league, j)
+             if any(s_.jornada == j and not s_.complete for s_ in todas)
+             else {"faltan": [], "sin_acta": [], "completa": True})
+    return {"jornada": j, "rows": out, "jornadas": js, "completa": falta["completa"],
+            "faltan": falta["faltan"], "sin_acta": falta["sin_acta"]}
 
 
 def standings(session: Session, league: FantasyLeague) -> list[dict]:

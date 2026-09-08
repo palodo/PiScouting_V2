@@ -279,6 +279,11 @@ class FantasyJornadaScore(SQLModel, table=True):
     # Quinteto que estaba alineado al puntuar (JSON con los player_id). Sin esto, mirar una
     # jornada pasada usaba la plantilla de HOY y el desglose no cuadraba con el total.
     starters: Optional[str] = None
+    # Una jornada se cierra a su hora aunque le falte algún partido por disputarse: parar la
+    # liga entera por un aplazado costaba una semana de mercado a todo el mundo. Mientras
+    # falte algo, estos puntos son PROVISIONALES: cuando se juegue lo que queda se vuelven a
+    # calcular sobre esta misma foto del quinteto y sube la diferencia. Ver `completar()`.
+    complete: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
