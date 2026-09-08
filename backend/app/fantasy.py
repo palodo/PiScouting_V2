@@ -538,8 +538,13 @@ def league_state(session: Session, league: FantasyLeague) -> dict:
         total = len(sim_partidos(session, league, nxt))
         sim = {"step": paso, "played": league.sim_played, "total": total}
         if paso == 0:
+            # Con un adelantado, ese partido ya se ha disputado aunque el mercado siga
+            # abierto: es exactamente la situación de un adelanto en la vida real.
+            ade, _ = sim_reparto(session, league, nxt)
             return {"phase": "mercado", "jornada": nxt, "kickoff_at": None, "ends_at": None,
-                    "market_deadline": None, "until": None, "pending": [], "sim": sim}
+                    "market_deadline": None, "until": None,
+                    "pending": sim_pendientes(session, league, nxt) if ade else [],
+                    "adelanto": bool(ade), "sim": sim}
         return {"phase": "jornada", "jornada": nxt, "kickoff_at": None, "ends_at": None,
                 "market_deadline": None, "until": None,
                 "pending": sim_pendientes(session, league, nxt), "sim": sim}
@@ -859,8 +864,8 @@ def sync_market(session: Session, league: FantasyLeague) -> FantasyLeague:
 # pasos, como un fin de semana de verdad: viernes noche se cierra todo, el sábado se van
 # jugando partidos y se puede ir mirando, y el domingo se cierra la jornada.
 
-def sim_partidos(session: Session, league: FantasyLeague, jornada: int) -> list[int]:
-    """Los partidos de una jornada, en el orden en que se van a ir disputando."""
+def _sim_base(session: Session, league: FantasyLeague, jornada: int) -> list[int]:
+    """Los partidos de una jornada en su orden natural, sin incidencias."""
     q = select(Match.id).where(Match.competition == league.competition,
                                Match.season == league.season,
                                Match.jornada_num == jornada)
@@ -870,6 +875,66 @@ def sim_partidos(session: Session, league: FantasyLeague, jornada: int) -> list[
     # tres partidos" serían tres distintos cada vez que se mira
     q = q.order_by(Match.match_date, Match.id)
     return list(session.exec(q).all())
+
+
+# Cada cuánto le toca a una jornada un partido movido. Un tercio y un cuarto es más de lo
+# que pasa de verdad, pero la gracia de la simulación es que se vea: con los de la FEB
+# (dos o tres por temporada) habría que jugar meses para toparse con uno.
+SIM_P_ADELANTO = 0.34
+SIM_P_APLAZADO = 0.25
+
+
+def sim_reparto(session: Session, league: FantasyLeague,
+                jornada: int) -> tuple[Optional[int], Optional[int]]:
+    """(partido adelantado, partido aplazado) de esa jornada en simulación.
+
+    Determinista: la misma liga y la misma jornada dan siempre lo mismo, aunque se
+    recargue la pantalla mil veces. La temporada ya jugada no trae estas situaciones (ver
+    `FantasyLeague.sim_incidencias`), así que aquí se inventan para poder verlas.
+    """
+    if not (league.sim_mode and league.sim_incidencias):
+        return None, None
+    ids = _sim_base(session, league, jornada)
+    if len(ids) < 3:
+        return None, None       # con dos partidos, mover uno es media jornada
+    rng = random.Random(f"{league.id}:{jornada}:incidencias")
+    ade = ids[rng.randrange(len(ids))] if rng.random() < SIM_P_ADELANTO else None
+    resto = [x for x in ids if x != ade]
+    apl = resto[rng.randrange(len(resto))] if rng.random() < SIM_P_APLAZADO else None
+    return ade, apl
+
+
+def sim_partidos(session: Session, league: FantasyLeague, jornada: int) -> list[int]:
+    """Los partidos de una jornada, en el orden en que se van a ir disputando.
+
+    El adelantado va primero (se juega antes de que cierre el mercado) y el aplazado el
+    último (se queda sin disputar cuando la jornada se cierra). Así el resto del ciclo
+    —que solo mira "cuántos llevo jugados"— sale bien sin saber nada de incidencias.
+    """
+    ids = _sim_base(session, league, jornada)
+    ade, apl = sim_reparto(session, league, jornada)
+    if not ade and not apl:
+        return ids
+    medio = [x for x in ids if x not in (ade, apl)]
+    return ([ade] if ade else []) + medio + ([apl] if apl else [])
+
+
+def _nombre_partido(session: Session, m: Match) -> str:
+    local = session.get(Team, m.home_team_id) if m.home_team_id else None
+    visit = session.get(Team, m.away_team_id) if m.away_team_id else None
+    return f"{local.name if local else '?'} - {visit.name if visit else '?'}"
+
+
+def _aplazados_sim(league: FantasyLeague) -> dict[int, int]:
+    """{jornada: match_id} de los aplazados que aún no se han disputado."""
+    try:
+        return {int(k): int(v) for k, v in json.loads(league.sim_aplazados or "{}").items()}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _guardar_aplazados(league: FantasyLeague, d: dict[int, int]) -> None:
+    league.sim_aplazados = json.dumps({str(k): v for k, v in d.items()}) if d else None
 
 
 def sim_step_de(session: Session, league: FantasyLeague) -> int:
@@ -895,13 +960,22 @@ def sim_step_de(session: Session, league: FantasyLeague) -> int:
 def sim_jugados(session: Session, league: FantasyLeague, jornada: int) -> Optional[set[int]]:
     """Partidos que YA se han disputado de una jornada, o None si cuentan todos.
 
-    Solo recorta la jornada en curso: las ya puntuadas son historia y se cuentan enteras.
+    Recorta la jornada en curso y también las pasadas a las que les quedara un aplazado:
+    esas se puntuaron en provisional y no cuentan enteras hasta que se dispute.
     """
-    if not league.sim_mode or jornada != league.current_jornada + 1:
+    if not league.sim_mode:
         return None
-    if sim_step_de(session, league) == 0:
-        return set()          # aún no ha empezado: nadie ha puntuado nada
-    return set(sim_partidos(session, league, jornada)[:league.sim_played])
+    if jornada == league.current_jornada + 1:
+        if sim_step_de(session, league) == 0:
+            # Aún no ha empezado la jornada… salvo el adelantado, que se juega antes de
+            # que cierre el mercado: es la gracia de un adelanto.
+            ade, _ = sim_reparto(session, league, jornada)
+            return {ade} if ade else set()
+        return set(sim_partidos(session, league, jornada)[:league.sim_played])
+    pendiente = _aplazados_sim(league).get(jornada)
+    if pendiente:
+        return set(sim_partidos(session, league, jornada)) - {pendiente}
+    return None
 
 
 def jornada_points(session: Session, league: FantasyLeague, jornada: int) -> dict[int, float]:
@@ -932,7 +1006,8 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
                   market_duration_h: int = 24, market_size: int = 15,
                   initial_squad: int = 5, clause_factor: float = 2.0,
                   clause_lock_h: int = 24, open_now: bool = True,
-                  sim_mode: Optional[bool] = None, play_weekday: int = 5, play_hour: int = 18,
+                  sim_mode: Optional[bool] = None, sim_incidencias: bool = False,
+                  play_weekday: int = 5, play_hour: int = 18,
                   play_duration_h: int = 30,
                   market_close_before_h: int = 19) -> FantasyLeague:
     if competition not in FANTASY_COMPETITIONS:
@@ -966,7 +1041,7 @@ def create_league(session: Session, owner_id: int, name: str, competition: str,
         market_size=int(_clamp(market_size, 4, 30)),
         clause_factor=float(_clamp(clause_factor, 1.2, 5.0)),
         clause_lock_h=int(_clamp(clause_lock_h, 0, 168)),
-        sim_mode=bool(sim_mode),
+        sim_mode=bool(sim_mode), sim_incidencias=bool(sim_incidencias),
         play_weekday=int(_clamp(play_weekday, 0, 6)), play_hour=int(_clamp(play_hour, 0, 23)),
         play_duration_h=int(_clamp(play_duration_h, 2, 168)),
         market_close_before_h=int(_clamp(market_close_before_h, 0, 120)),
@@ -1754,7 +1829,8 @@ def set_lineup(session: Session, league: FantasyLeague, member: FantasyMember,
 
 
 # ============================ jornada / clasificación ============================
-def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> list[str]:
+def pending_matches(session: Session, league: FantasyLeague, jornada: int,
+                    solo: Optional[set] = None) -> list[str]:
     """Partidos de esa jornada que aún no se han jugado (aplazados o por disputar).
 
     Mientras quede alguno no se puede puntuar: los jugadores de esos equipos sumarían cero
@@ -1767,6 +1843,8 @@ def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> li
         q = q.where(Match.grupo == league.grupo)
     faltan = []
     for m in session.exec(q).all():
+        if solo is not None and m.id not in solo:
+            continue
         if m.home_score is None or m.away_score is None:
             local = session.get(Team, m.home_team_id) if m.home_team_id else None
             visit = session.get(Team, m.away_team_id) if m.away_team_id else None
@@ -1774,7 +1852,8 @@ def pending_matches(session: Session, league: FantasyLeague, jornada: int) -> li
     return faltan
 
 
-def sin_acta(session: Session, league: FantasyLeague, jornada: int) -> list[str]:
+def sin_acta(session: Session, league: FantasyLeague, jornada: int,
+             solo: Optional[set] = None) -> list[str]:
     """Partidos ya jugados de esa jornada cuyo BOXSCORE todavía no ha llegado.
 
     La FEB publica el marcador en el calendario y el acta por otro lado, y a veces tarda
@@ -1792,7 +1871,8 @@ def sin_acta(session: Session, league: FantasyLeague, jornada: int) -> list[str]
     if league.grupo:
         q = q.where(Match.grupo == league.grupo)
     jugados = [m for m in session.exec(q).all()
-               if m.home_score is not None and m.away_score is not None
+               if (solo is None or m.id in solo)
+               and m.home_score is not None and m.away_score is not None
                and not m.details_unavailable]
     if not jugados:
         return []
@@ -1844,7 +1924,10 @@ def _equipos_pendientes(session: Session, league: FantasyLeague, jornada: int) -
 def sim_pendientes(session: Session, league: FantasyLeague, jornada: int) -> list[str]:
     """Los que en simulación todavía no se han disputado, con nombres, para poder decir
     exactamente qué falta antes de cerrar la jornada."""
-    ids = sim_partidos(session, league, jornada)[league.sim_played:]
+    jugados = sim_jugados(session, league, jornada)
+    if jugados is None:
+        return []
+    ids = [m for m in sim_partidos(session, league, jornada) if m not in jugados]
     faltan = []
     for mid in ids:
         m = session.get(Match, mid)
@@ -2020,8 +2103,18 @@ def equipos_en_juego(session: Session, league: FantasyLeague,
     if league.grupo:
         q = q.where(Match.grupo == league.grupo)
     now = utcnow()
+    # En simulación el reloj no dice nada (la temporada está jugada entera): quien manda
+    # es el paso del simulador.
+    disputados = sim_jugados(session, league, jornada) if league.sim_mode else None
     out: dict[int, datetime] = {}
     for m in session.exec(q).all():
+        if disputados is not None:
+            if m.id not in disputados:
+                continue
+            for tid in (m.home_team_id, m.away_team_id):
+                if tid:
+                    out[tid] = now
+            continue
         inicio = _inicio_de(league, m)
         jugado = m.home_score is not None and m.away_score is not None
         if not (jugado or (inicio and now >= inicio)):
@@ -2150,14 +2243,31 @@ def sim_cerrar_mercado(session: Session, league: FantasyLeague) -> dict:
     if sim_step_de(session, league) != 0:
         return {"ok": False, "message": "La jornada ya está en juego"}
     nxt = league.current_jornada + 1
+    ade, _ = sim_reparto(session, league, nxt)
     league.sim_step = 1
-    league.sim_played = 0
+    # El adelantado va el primero de la lista y se jugó antes de cerrar el mercado.
+    league.sim_played = 1 if ade else 0
+    # Los aplazados de hace dos jornadas se recuperan ahora: es cuando la FEB los suele
+    # meter entre semana. `completar()` sube los puntos en el siguiente `sync_market`.
+    pend = _aplazados_sim(league)
+    recuperados = [j for j in pend if j <= nxt - 2]
+    for j in recuperados:
+        mid = pend.pop(j)
+        m = session.get(Match, mid)
+        nombre = _nombre_partido(session, m) if m else "un partido"
+        _log(session, league.id, "jornada",
+             f"🏀 Se recupera el aplazado de la jornada {j}: {nombre}")
+    if recuperados:
+        _guardar_aplazados(league, pend)
     session.add(league)
     _log(session, league.id, "jornada",
          f"🔒 Jornada {nxt}: mercado cerrado y quintetos bloqueados")
     session.commit()
+    if recuperados:
+        completar(session, league)
     return {"ok": True, "step": 1, "jornada": nxt,
-            "total": len(sim_partidos(session, league, nxt)), "played": 0}
+            "total": len(sim_partidos(session, league, nxt)),
+            "played": league.sim_played, "recuperados": recuperados}
 
 
 def sim_jugar(session: Session, league: FantasyLeague, cuantos: int = 0) -> dict:
@@ -2200,8 +2310,18 @@ def sim_finalizar(session: Session, league: FantasyLeague) -> dict:
     nxt = league.current_jornada + 1
     # Domingo noche: se disputa lo que quedara y se cierra.
     total = len(sim_partidos(session, league, nxt))
-    quedaban = total - league.sim_played
-    league.sim_played = total
+    _, apl = sim_reparto(session, league, nxt)
+    # El aplazado va el último de la lista y NO se juega: la jornada se cierra sin él y
+    # queda en provisional, que es de lo que va todo esto.
+    quedaban = total - (1 if apl else 0) - league.sim_played   # los que faltaban por jugar
+    league.sim_played = total - (1 if apl else 0)
+    if apl:
+        pend = _aplazados_sim(league)
+        pend[nxt] = apl
+        _guardar_aplazados(league, pend)
+        m = session.get(Match, apl)
+        _log(session, league.id, "jornada",
+             f"📆 Jornada {nxt}: se aplaza {_nombre_partido(session, m) if m else 'un partido'}")
     session.add(league)
     session.commit()
 
@@ -2225,6 +2345,16 @@ def jornada_falta(session: Session, league: FantasyLeague, jornada: int) -> dict
     que los dos mantienen la jornada en provisional; pero se cuentan aparte porque al
     usuario hay que decírselo con palabras distintas.
     """
+    if league.sim_mode:
+        # La base tiene todos los resultados desde el principio, así que preguntarle a
+        # ella no sirve para saber qué se ha jugado: eso lo dice el simulador. Pero de los
+        # que SÍ ha disputado hay que mirarla igual, por si a alguno le falta el resultado
+        # o el acta: ese cero también es injusto, y en simulación pasaría desapercibido.
+        faltan = sim_pendientes(session, league, jornada)
+        disputados = sim_jugados(session, league, jornada)
+        actas = sin_acta(session, league, jornada, solo=disputados)
+        faltan = faltan + pending_matches(session, league, jornada, solo=disputados)
+        return {"faltan": faltan, "sin_acta": actas, "completa": not faltan and not actas}
     faltan = pending_matches(session, league, jornada)
     actas = sin_acta(session, league, jornada)
     return {"faltan": faltan, "sin_acta": actas, "completa": not faltan and not actas}
@@ -2840,6 +2970,7 @@ def league_out(league: FantasyLeague, state: Optional[dict] = None) -> dict:
             "can_lineup": state["phase"] in ("mercado", "alineacion"),
             # en simulación, en qué paso va la jornada y cuántos partidos llevan jugados
             "sim": state.get("sim"),
+            "sim_incidencias": league.sim_incidencias,
         }
     return {**extra, **{
         "id": league.id, "name": league.name, "join_code": league.join_code,

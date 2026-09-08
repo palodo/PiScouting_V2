@@ -189,6 +189,14 @@ class FantasyLeague(SQLModel, table=True):
     # que ninguna liga en marcha cambie de fase de golpe.
     sim_step: Optional[int] = None   # 0 = mercado abierto · 1 = jornada en juego
     sim_played: int = 0              # partidos de la jornada en curso ya disputados
+    # La temporada ya jugada no trae aplazamientos ni adelantos: la FEB deja de publicar el
+    # día y la hora de cada partido cuando termina, así que las 346 jornadas de la 25/26
+    # tienen todos sus partidos el mismo día. Con esto encendido, el simulador los inventa
+    # (siempre los mismos para una liga dada) para poder verlos funcionar. Ver `sim_reparto`.
+    sim_incidencias: bool = False
+    # Aplazados que se dejaron sin disputar, {jornada: match_id}. Esas jornadas quedaron
+    # puntuadas en provisional y se completan cuando el simulador los juega.
+    sim_aplazados: Optional[str] = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
