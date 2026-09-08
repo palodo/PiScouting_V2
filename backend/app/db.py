@@ -64,20 +64,33 @@ def _add_missing_columns() -> None:
 
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
-    with engine.begin() as conn:
-        for table in SQLModel.metadata.sorted_tables:
-            if table.name not in existing_tables:
+    for table in SQLModel.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        have = {c["name"] for c in inspector.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in have:
                 continue
-            have = {c["name"] for c in inspector.get_columns(table.name)}
-            for col in table.columns:
-                if col.name in have:
-                    continue
-                ddl = CreateColumn(col).compile(engine).string
-                # Una columna añadida a una tabla con filas no puede ser NOT NULL sin default.
-                ddl = ddl.replace(" NOT NULL", "")
-                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN {ddl}'))
-                default = getattr(col.default, "arg", None)
-                if default is not None and not callable(default):
+            ddl = CreateColumn(col).compile(engine).string
+            # Una columna añadida a una tabla con filas no puede ser NOT NULL sin default.
+            ddl = ddl.replace(" NOT NULL", "")
+            # Una transacción POR COLUMNA, y no una para todas: uvicorn arranca con dos
+            # procesos y los dos migran a la vez, así que el que llega segundo se
+            # encuentra la columna ya puesta. Antes eso mataba a ese proceso al arrancar
+            # ("Application startup failed") y la VM se quedaba con la mitad de la
+            # capacidad hasta el siguiente despliegue; y compartiendo transacción, el
+            # choque de una columna se llevaba por delante a las demás.
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN {ddl}'))
+            except Exception as e:  # noqa: BLE001
+                msg = str(e).lower()
+                if "duplicate column" not in msg and "already exists" not in msg:
+                    raise
+                continue
+            default = getattr(col.default, "arg", None)
+            if default is not None and not callable(default):
+                with engine.begin() as conn:
                     conn.execute(text(f'UPDATE "{table.name}" SET "{col.name}" = :v'
                                       f' WHERE "{col.name}" IS NULL'), {"v": default})
 
