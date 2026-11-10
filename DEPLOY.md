@@ -123,6 +123,42 @@ ya está incluido para que las rutas internas funcionen al recargar.
 
 ---
 
+## 3-bis. Las dos webs en GitHub Pages (sin cuentas externas)
+
+Alternativa a Cloudflare: el workflow **`.github/workflows/deploy-web.yml`** publica las dos
+webs de una vez en GitHub Pages, usando el propio `GITHUB_TOKEN`.
+
+| Web | URL |
+|---|---|
+| PiFantasy | `https://<usuario>.github.io/<repo>/` |
+| PiScouting (informes incluidos) | `https://<usuario>.github.io/<repo>/scouting/` |
+
+**Van en el mismo workflow a la fuerza**: Pages solo admite UNA publicación por repositorio,
+así que si cada app tuviera la suya, la segunda borraría a la primera. Por eso se construyen
+las dos y se sube un único artefacto con el scouting anidado en `/scouting`.
+
+Puesta en marcha:
+
+1. **Settings → Secrets and variables → Actions → Variables** → nueva variable
+   `API_BASE` = la URL del backend en Render (sin `/api` ni barra final).
+2. **Actions → «Publicar PiFantasy y PiScouting» → Run workflow.** (Luego se lanza solo en
+   cada push a `main` que toque `fantasy-web/`, `frontend/` o el propio workflow.)
+3. En **Render** → `FRONTEND_ORIGIN` = `https://<usuario>.github.io` (el dominio a secas: el
+   CORS va por origen, no por ruta, así que una sola entrada cubre las dos webs).
+
+Dos cosas que conviene saber:
+
+- Cada app se construye con su `VITE_BASE` (`/<repo>/` y `/<repo>/scouting/`) porque Pages no
+  sirve en la raíz del dominio. El router del scouting lo lee de `import.meta.env.BASE_URL`.
+- El scouting tiene rutas propias (`/scouting/postgame/12`) y Pages es un servidor de ficheros:
+  al entrar directo o recargar en una de ellas buscaría un fichero que no existe. Por eso el
+  workflow copia el `index.html` a `404.html`, que es el apaño estándar de Pages para apps de
+  una sola página. Funciona (la app arranca y el router resuelve la ruta), pero la respuesta
+  lleva código 404. Si eso molesta, Cloudflare Pages lo hace bien con el `_redirects` que ya
+  está en el repo.
+
+---
+
 ## Cuotas de los planes gratuitos
 
 Consultado en agosto de 2026 — estas cifras cambian, confírmalas al registrarte.

@@ -134,6 +134,11 @@ crea una cuenta nueva en la app (registro con email+contraseña y elección de e
   por eso los SVG de dentro (que usan `var(--court-line)`, `var(--made)`…) se vuelven oscuros
   solos. La clase `body.pg-dark` (la pone y la quita la propia página) evita que el crema del
   body asome al lado de la barra lateral.
+- **Dos webs, un backend**: `frontend/` es PiScouting (scouting e informes) y `fantasy-web/`
+  es PiFantasy. En GitHub Pages van en la MISMA publicación (Pages solo admite una por repo):
+  `deploy-web.yml` construye las dos y anida el scouting en `/scouting`. Cada una se construye
+  con su `VITE_BASE`, el router lo lee de `import.meta.env.BASE_URL`, y el `404.html` del
+  scouting es lo que hace que funcionen los enlaces directos a un informe. Ver DEPLOY.md §3-bis.
 - **Ficheros gitignored** (se regeneran): `data/scouting.db`, `data/player_photos_cache/`,
   `data/team_logos_cache/`, `node_modules/`, `*.log`, `_original/` (proyecto viejo de referencia).
 

@@ -14,7 +14,10 @@
     "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    /* tipos de Vite: sin esto, import.meta.env no existe para TypeScript
+       (por eso api.ts lo venía casteando a any). Igual que en fantasy-web. */
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }

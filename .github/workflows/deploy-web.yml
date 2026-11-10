@@ -1,0 +1,133 @@
+# Publica en GitHub Pages las DOS webs del proyecto, en una sola publicación:
+#
+#   https://<usuario>.github.io/<repo>/            -> PiFantasy   (fantasy-web/)
+#   https://<usuario>.github.io/<repo>/scouting/   -> PiScouting  (frontend/)
+#
+# Van juntas a la fuerza: GitHub Pages solo admite UNA publicación por repositorio, así
+# que si cada app tuviera su workflow, la segunda en publicar borraría a la primera. Por
+# eso se construyen las dos y se sube un único artefacto con el scouting anidado dentro.
+#
+# No necesita cuentas ni tokens externos: Pages se autentica con el propio GITHUB_TOKEN.
+# Las dos apps se construyen con VITE_BASE (su subdirectorio) y VITE_API_BASE (el backend).
+#
+# La URL del backend (Render) se toma, por este orden:
+#   1. el input api_base, si se lanza a mano
+#   2. la variable de repositorio API_BASE (Settings → Secrets and variables → Actions → Variables)
+name: Publicar PiFantasy y PiScouting
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: "URL del backend en Render (sin /api y sin barra final)"
+        required: false
+  push:
+    branches: [main]
+    paths:
+      - "fantasy-web/**"
+      - "frontend/**"
+      - ".github/workflows/deploy-web.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Una publicación a la vez; no cancela la que esté en curso.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # En los push solo tiene sentido si la URL del backend está guardada como variable;
+    # si no, se salta limpiamente en vez de fallar.
+    if: github.event_name == 'workflow_dispatch' || vars.API_BASE != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolver la URL del backend
+        id: api
+        env:
+          FROM_INPUT: ${{ inputs.api_base }}
+          FROM_VAR: ${{ vars.API_BASE }}
+        run: |
+          API="${FROM_INPUT:-$FROM_VAR}"
+          if [ -z "$API" ]; then
+            echo "::error::Falta la URL del backend. Lanza el workflow a mano rellenando 'api_base', o crea la variable de repositorio API_BASE."
+            exit 1
+          fi
+          API="${API%/}"          # quita la barra final si la lleva
+          API="${API%/api}"       # y un /api de más, que es el error típico
+          echo "value=$API" >> "$GITHUB_OUTPUT"
+          echo "Backend: $API"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: fantasy-web/.node-version
+          cache: npm
+          cache-dependency-path: |
+            fantasy-web/package-lock.json
+            frontend/package-lock.json
+
+      # ---------------- PiFantasy: la raíz del sitio ----------------
+      - name: Instalar dependencias (PiFantasy)
+        working-directory: fantasy-web
+        run: npm ci
+
+      - name: Construir PiFantasy
+        working-directory: fantasy-web
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_API_BASE: ${{ steps.api.outputs.value }}
+        run: npm run build
+
+      # ---------------- PiScouting: cuelga de /scouting/ ----------------
+      - name: Instalar dependencias (PiScouting)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Construir PiScouting
+        working-directory: frontend
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/scouting/
+          VITE_API_BASE: ${{ steps.api.outputs.value }}
+        run: npm run build
+
+      - name: Juntar las dos webs en un solo sitio
+        run: |
+          mkdir -p fantasy-web/dist/scouting
+          cp -r frontend/dist/. fantasy-web/dist/scouting/
+          # El scouting SÍ tiene rutas propias (/scouting/postgame/12). Pages es un
+          # servidor de ficheros: al entrar directo o recargar en una de esas URLs busca
+          # un fichero que no existe y devuelve su 404. Sirviendo el index como 404.html
+          # la app arranca igual y el router resuelve la ruta. Es el apaño estándar de
+          # Pages para aplicaciones de una sola página.
+          cp fantasy-web/dist/scouting/index.html fantasy-web/dist/scouting/404.html
+          echo "--- sitio a publicar ---"
+          find fantasy-web/dist -maxdepth 2 -name "*.html" | sort
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: fantasy-web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Dónde ha quedado cada cosa
+        run: |
+          echo "PiFantasy:  ${{ steps.deployment.outputs.page_url }}"
+          echo "PiScouting: ${{ steps.deployment.outputs.page_url }}scouting/"
+          echo "Si la web carga pero no deja entrar, pon el dominio (sin barra final) en FRONTEND_ORIGIN, en Render."

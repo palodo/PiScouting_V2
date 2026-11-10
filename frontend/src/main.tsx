@@ -7,7 +7,9 @@ import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    {/* BASE_URL es lo que puso Vite: "/" en local, "/<repo>/scouting/" en Pages.
+        Sin esto el router buscaría las rutas en la raíz del dominio y no encontraría nada. */}
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <AuthProvider>
         <App />
       </AuthProvider>
