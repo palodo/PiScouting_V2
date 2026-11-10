@@ -101,6 +101,22 @@ class FEBClient:
             "SHOTCHART": shot.get("SHOTCHART") or {},
         }
 
+    def get_playbyplay(self, partido_id: str) -> dict:
+        """Devuelve el play-by-play completo del partido (sección PLAYBYPLAY).
+
+        OJO con el nombre del endpoint: el play-by-play lo sirve **KeyFacts**, no un
+        endpoint `PlayByPlay` (que responde 404). La sección existe en el envelope de
+        todos los endpoints, pero solo KeyFacts la rellena. Son ~500 líneas por partido:
+        una petición más, así que se pide aparte y solo cuando hace falta.
+        """
+        data = self._livestats("KeyFacts", partido_id)
+        if self.pause:
+            time.sleep(self.pause)
+        return {
+            "HEADER": data.get("HEADER") or {},
+            "PLAYBYPLAY": data.get("PLAYBYPLAY") or {},
+        }
+
     # -------- Web pública (GET simple) --------
     def get_soup(self, url: str) -> BeautifulSoup:
         r = self.session.get(url, timeout=30)

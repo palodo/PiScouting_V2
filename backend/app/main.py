@@ -14,9 +14,9 @@ from sqlmodel import Session, select, func
 
 from .db import engine, init_db, get_session
 from .config import DEFAULT_SEASON
-from .models import (Team, Player, Match, PlayerMatchStat, User, FantasyLeague,
+from .models import (Team, Player, Match, PlayerMatchStat, PlayEvent, User, FantasyLeague,
                      PasswordReset, PushSubscription)
-from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod, mailer, push as push_mod, bets as bets_mod
+from . import analytics, shots as shots_mod, scouting as scouting_mod, auth, fantasy as fantasy_mod, cache, refresh as refresh_mod, mailer, push as push_mod, bets as bets_mod, postgame as postgame_mod
 from .ingest.crawl import ingest_team
 
 app = FastAPI(title="PiScouting API", version="0.1.0")
@@ -541,6 +541,100 @@ def scout_prepare(team_id: int, limit: int = 20, session: Session = Depends(get_
     result = ingest_team(session, team_id, limit=limit)
     cache.clear()  # el detalle nuevo cambia los agregados: invalidar caché
     return result
+
+
+@app.get("/api/scout/{team_id}/matches")
+def scout_matches(team_id: int, session: Session = Depends(get_session)):
+    """Partidos jugados del equipo, para elegir de cuál se quiere el informe post-partido."""
+    if not session.get(Team, team_id):
+        raise HTTPException(404, "Equipo no encontrado")
+    return postgame_mod.team_matches(session, team_id)
+
+
+# ---------------------- Informe post-partido ----------------------
+def _ensure_postgame_data(session: Session, match: Match) -> None:
+    """Deja el partido listo para el informe: boxscore, tiros y play-by-play.
+
+    Se hace al vuelo porque el play-by-play es una petición más por partido (~500
+    jugadas) y solo hace falta en los que alguien abre de verdad; bajarlo para los 2.430
+    de la temporada sería tirar media hora de peticiones a la FEB por nada.
+    """
+    from .ingest.feb_client import FEBClient
+    from .ingest.pipeline import ingest_match, ingest_pbp
+
+    client = FEBClient()
+    if match.status != "ingested":
+        home = session.get(Team, match.home_team_id)
+        away = session.get(Team, match.away_team_id)
+        ingest_match(
+            session, client, match.partido_id,
+            competition=match.competition, season=match.season, grupo=match.grupo,
+            jornada=match.jornada, jornada_num=match.jornada_num,
+            home_feb_code=home.feb_code if home else None,
+            away_feb_code=away.feb_code if away else None,
+            match_date=match.match_date,
+        )
+        session.refresh(match)
+    if not match.pbp_events:
+        ingest_pbp(session, client, match)
+        cache.clear()
+
+
+@app.get("/api/matches/{match_id}/postgame")
+def match_postgame(match_id: int, prepare: bool = True,
+                   session: Session = Depends(get_session)):
+    """Informe post-partido completo (JSON). Con `prepare=false` no descarga nada."""
+    m = session.get(Match, match_id)
+    if not m:
+        raise HTTPException(404, "Partido no encontrado")
+    if m.home_score is None:
+        raise HTTPException(400, "El partido todavía no se ha jugado")
+    if prepare:
+        try:
+            _ensure_postgame_data(session, m)
+        except Exception as e:  # noqa: BLE001 — sin play-by-play el informe sale recortado
+            if not m.pbp_events and m.status != "ingested":
+                raise HTTPException(502, f"La FEB no sirve este partido ({type(e).__name__})")
+    rep = postgame_mod.build(session, match_id)
+    if not rep:
+        raise HTTPException(404, "Partido sin datos")
+    return rep
+
+
+@app.post("/api/matches/{match_id}/postgame/prepare")
+def match_postgame_prepare(match_id: int, session: Session = Depends(get_session)):
+    """Descarga lo que falte de un partido (detalle + play-by-play) sin montar el informe."""
+    m = session.get(Match, match_id)
+    if not m:
+        raise HTTPException(404, "Partido no encontrado")
+    _ensure_postgame_data(session, m)
+    return {"match_id": m.id, "events": m.pbp_events, "status": m.status}
+
+
+@app.get("/api/matches/{match_id}/postgame/pdf")
+def match_postgame_pdf(match_id: int, session: Session = Depends(get_session)):
+    """Informe post-partido en PDF."""
+    from . import postgame_pdf
+    m = session.get(Match, match_id)
+    if not m:
+        raise HTTPException(404, "Partido no encontrado")
+    try:
+        _ensure_postgame_data(session, m)
+    except Exception as e:  # noqa: BLE001 — sin play-by-play el informe sale recortado
+        if m.status != "ingested":
+            raise HTTPException(502, f"La FEB no sirve este partido ({type(e).__name__})")
+    home = session.get(Team, m.home_team_id)
+    away = session.get(Team, m.away_team_id)
+    pdf = postgame_pdf.build_postgame_pdf(session, match_id)
+
+    def safe(t):
+        return "".join(c if c.isalnum() else "_" for c in (t.name if t else "equipo"))[:26]
+
+    return StreamingResponse(
+        pdf, media_type="application/pdf",
+        headers={"Content-Disposition":
+                 f'attachment; filename="informe_{safe(home)}_vs_{safe(away)}.pdf"'},
+    )
 
 
 @app.get("/api/scout/{team_id}/pdf")

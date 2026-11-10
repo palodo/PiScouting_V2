@@ -15,6 +15,8 @@ backend/    FastAPI + SQLModel (SQLite)  ->  API REST + ingesta de datos FEB
     auth.py          Registro/login (PBKDF2 + JWT)
     analytics.py     Agregados (récord, roster, líderes, TS%…)
     scouting.py      Informe del rival, calendario, próximo rival, simulador de jornada
+    postgame.py      Informe post-partido: posesiones, quintetos, rachas, zonas de tiro
+    postgame_pdf.py  El mismo informe en PDF (vertical, 15 páginas)
     shots.py         Normalización de tiros a media pista
     ingest/          Cliente FEB, scraper de calendario y pipeline de ingesta
   ingest_cli.py      CLI para poblar la base de datos
@@ -26,11 +28,14 @@ data/       scouting.db (generada) + assets (imagen de pista)
 Fuente: `baloncestoenvivo.feb.es` (calendario/clasificación) + la **LiveStats API**
 (`intrafeb.feb.es`). Por cada partido se obtienen boxscore completo —incluido el **+/-**
 (campo `pllss`)— y el shotchart con coordenadas + reloj + cuarto (base de los mapas animados).
+Para los informes post-partido se baja además el **play-by-play** completo (~500 jugadas).
 
-Dos claves descubiertas y aprovechadas:
+Tres claves descubiertas y aprovechadas:
 - El **token** de la LiveStats API es **global**: sirve para cualquier partido de cualquier
   categoría, así que se descarga una sola vez (evita ~2400 descargas de HTML → ingesta ~4× más rápida).
 - El `code` de la URL de calendario selecciona la categoría: **1 = 1ª FEB, 2 = 2ª FEB, 5 = 3ª FEB**.
+- El **play-by-play** no lo sirve ningún endpoint `PlayByPlay` (404): va dentro de **`KeyFacts`**,
+  con coordenadas y valor de cada tiro. Es lo que permite reconstruir el partido jugada a jugada.
 
 ## Puesta en marcha
 
@@ -72,12 +77,21 @@ UI en http://127.0.0.1:5173 (proxy de `/api` al backend en el 8000).
 - **Scouting del rival** (tipo los PDF originales): puesto en el grupo, métricas avanzadas
   (OffRtg, ritmo, eFG%, TS%, AST/TO, % de tiros de 3), clasificación, **jugadores clave** con
   foto y mapa de tiro, y plantilla con +/- y TS%. **Exportable a PDF** (informe descargable).
+- **Informes post-partido**: de cada partido jugado, un informe completo al estilo de los
+  informes profesionales, en la app y **en PDF de 15 páginas**. Lleva resumen ejecutivo,
+  evolución del marcador con rachas y sequías, fases de cada cuarto y tiempos muertos, four
+  factors, **economía de posesión** (de dónde sale cada punto: tras robo, tras rebote, segundas
+  oportunidades, puntos rápidos), perfil de tiro por zonas, box score, producción individual
+  (Oliver), **quintetos, parejas y tríos** con su +/-, claves de scouting y una última página de
+  calidad del dato. Todo se reconstruye del play-by-play, y los minutos y el +/- se **validan
+  contra el acta oficial**: si algo no cuadra, el informe lo dice.
 - **Rankings**: clasificación por categoría/grupo y líderes por estadística.
 - **Fichas** de equipo / jugador / partido con **mapas de tiro** (animados en jugador y partido).
 - **Comparar**: enfrenta las medias de dos equipos.
 
 ## Pendiente / próximos pasos
-- Calibrar con precisión el sistema de coordenadas del shotchart contra la pista real.
+- Llevar al mapa de tiro de temporada la geometría ya calibrada en el informe post-partido.
 - Que el simulador de jornada acote también el scouting del rival a sus partidos hasta esa fecha.
 - Refresco incremental por jornada (tarea programada) y narrativa de scouting con IA + export a PDF.
-- Zonas de tiro (heatmap y % por zona) y comparación directa rival vs. tu equipo.
+- Heatmap de tiro (el % por zona ya está en el informe post-partido) y comparación directa
+  rival vs. tu equipo.

@@ -83,6 +83,10 @@ class Match(SQLModel, table=True):
     # Estado de ingesta del detalle (boxscore + tiros)
     status: str = Field(default="scheduled", index=True)  # scheduled|played|ingested
     ingested_at: Optional[datetime] = None
+    # Play-by-play (informe post-partido). Va aparte del resto del detalle porque es una
+    # petición más por partido y solo se baja cuando alguien pide el informe de ESE partido.
+    pbp_events: int = Field(default=0)
+    pbp_ingested_at: Optional[datetime] = None
     # Partidos que la FEB nunca va a servir (incomparecencias: hay marcador, 0-2, pero no
     # se jugaron y LiveStats responde 404 para siempre). Se marcan para dejar de
     # reintentarlos cada hora. Ojo: el `status` se queda como está a propósito, porque la
@@ -499,3 +503,40 @@ class Shot(SQLModel, table=True):
     quarter: Optional[int] = Field(default=None, index=True)
     clock: Optional[str] = None  # "05:59" reloj del cuarto
     seconds_elapsed: Optional[int] = Field(default=None, index=True)  # segundos desde el inicio del partido
+
+
+class PlayEvent(SQLModel, table=True):
+    """Una línea del play-by-play de un partido (LiveStats, endpoint KeyFacts).
+
+    Es la materia prima de los informes post-partido: con el orden de las jugadas se
+    reconstruye lo que el boxscore no cuenta (posesión a posesión, quién estaba en pista,
+    rachas, de dónde salen los puntos). Validado: recorriendo las sustituciones y los
+    puntos se reproducen EXACTAMENTE los minutos y el +/- oficiales de cada jugador.
+
+    `action` es el vocabulario de la FEB, tal cual:
+      period · subst · shoot · fthrow · rebound · assist · lose · recovery · foul · blockshot
+    """
+    __tablename__ = "play_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    match_id: int = Field(foreign_key="matches.id", index=True)
+    num: int = Field(default=0, index=True)   # orden original de la FEB (creciente)
+    quarter: Optional[int] = Field(default=None, index=True)
+    clock: Optional[str] = None               # "07:32" que QUEDA en el cuarto
+    seconds_elapsed: Optional[int] = Field(default=None, index=True)  # desde el salto inicial
+
+    team_id: Optional[int] = Field(default=None, foreign_key="teams.id", index=True)
+    is_home: Optional[bool] = Field(default=None, index=True)
+    player_id: Optional[int] = Field(default=None, foreign_key="players.id", index=True)
+
+    action: str = Field(default="", index=True)
+    # matiz de la acción: entra/sale en una sustitución, tipo de falta, final/comienzo de cuarto
+    detail: Optional[str] = None
+    made: Optional[bool] = None               # solo en tiros
+    points: int = 0                           # valor del tiro (1/2/3); 0 si no anota
+    # Marcador DESPUÉS de la jugada, tal como lo publica la FEB (solo en jugadas que anotan)
+    score_home: Optional[int] = None
+    score_away: Optional[int] = None
+    x: Optional[float] = None                 # coordenadas de pista completa (0-100)
+    y: Optional[float] = None
+    text: Optional[str] = None

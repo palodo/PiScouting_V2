@@ -56,6 +56,22 @@ export interface AuthUser {
   team: { team_id: number; name: string; logo: string | null; competition: string; grupo: string | null } | null;
 }
 
+export interface PostgameMatch {
+  match_id: number;
+  jornada: string | null;
+  jornada_num: number | null;
+  date: string | null;
+  is_home: boolean;
+  opponent: string;
+  opponent_id: number | null;
+  opponent_logo: string | null;
+  score: string;
+  result: "V" | "D";
+  margin: number;
+  ready: boolean;   // ya tiene el play-by-play descargado
+  detail: boolean;
+}
+
 export interface CompetitionMeta {
   competition: string;
   teams: number;
@@ -156,6 +172,10 @@ export const api = {
   nextOpponent: (teamId: number) => get<any>(`/teams/${teamId}/next`),
   scout: (teamId: number) => get<any>(`/scout/${teamId}`),
   scoutPrepare: (teamId: number, limit = 20) => send<any>("POST", `/scout/${teamId}/prepare?limit=${limit}`),
+
+  // Informes post-partido
+  scoutMatches: (teamId: number) => get<PostgameMatch[]>(`/scout/${teamId}/matches`),
+  postgame: (matchId: number) => get<any>(`/matches/${matchId}/postgame`),
 
   // Fantasy
   fantasyCompetitions: () => get<{ competitions: { competition: string; grupos: string[] }[] }>("/fantasy/competitions"),

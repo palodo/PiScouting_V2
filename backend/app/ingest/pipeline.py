@@ -12,9 +12,9 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from ..models import Team, Player, Match, PlayerMatchStat, Shot
+from ..models import Team, Player, Match, PlayerMatchStat, Shot, PlayEvent
 from .feb_client import FEBClient
-from .match_parser import parse_match
+from .match_parser import parse_match, parse_header, parse_pbp
 
 
 def _parse_date(text: Optional[str]) -> Optional[date]:
@@ -199,3 +199,64 @@ def ingest_match(session: Session, client: FEBClient, partido_id: str, *,
 
     session.commit()
     return match
+
+
+def ingest_pbp(session: Session, client: FEBClient, match: Match, *,
+               force: bool = False) -> int:
+    """Baja y guarda el play-by-play de un partido ya ingerido. Devuelve nº de jugadas.
+
+    Es idempotente: borra lo anterior y lo vuelve a escribir. Se llama bajo demanda (al
+    pedir el informe post-partido), no en la ingesta general: son ~500 filas y una
+    petición más por partido, y solo hace falta en los partidos que alguien mira.
+    """
+    if match.pbp_events and not force:
+        return match.pbp_events
+    data = client.get_playbyplay(match.partido_id)
+    events = parse_pbp(data)
+    if not events:
+        return 0
+
+    # Índice 0/1 del play-by-play -> equipo. Las sustituciones NO traen `idTeam`, solo el
+    # índice, así que hay que resolverlo por la cabecera (mismo orden que TEAM).
+    header = parse_header(data.get("HEADER") or {})
+    index_to_team: dict[int, Team] = {}
+    for i, t in enumerate(header.get("teams") or []):
+        if not t.get("id"):
+            continue
+        row = session.exec(select(Team).where(Team.feb_code == t["id"],
+                                              Team.season == match.season)).first()
+        if row is None:
+            row = session.exec(select(Team).where(Team.feb_code == t["id"])).first()
+        if row is not None:
+            index_to_team[i] = row
+    by_code = {t["id"]: index_to_team[i] for i, t in enumerate(header.get("teams") or [])
+               if t.get("id") and i in index_to_team}
+
+    codes = {e["player_code"] for e in events if e["player_code"]}
+    players = {p.feb_code: p for p in session.exec(
+        select(Player).where(Player.feb_code.in_(list(codes)))).all()} if codes else {}
+
+    for old in session.exec(select(PlayEvent).where(PlayEvent.match_id == match.id)):
+        session.delete(old)
+    session.flush()
+
+    for e in events:
+        team = by_code.get(e["team_livestats_id"]) if e["team_livestats_id"] else None
+        if team is None and e["team_index"] is not None:
+            team = index_to_team.get(e["team_index"])
+        player = players.get(e["player_code"]) if e["player_code"] else None
+        session.add(PlayEvent(
+            match_id=match.id, num=e["num"], quarter=e["quarter"], clock=e["clock"],
+            seconds_elapsed=e["seconds_elapsed"],
+            team_id=team.id if team else None,
+            is_home=(team.id == match.home_team_id) if team else None,
+            player_id=player.id if player else None,
+            action=e["action"], detail=e["detail"], made=e["made"], points=e["points"],
+            score_home=e["score_home"], score_away=e["score_away"],
+            x=e["x"], y=e["y"], text=e["text"],
+        ))
+    match.pbp_events = len(events)
+    match.pbp_ingested_at = datetime.utcnow()
+    session.add(match)
+    session.commit()
+    return len(events)

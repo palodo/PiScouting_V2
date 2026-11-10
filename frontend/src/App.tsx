@@ -9,6 +9,7 @@ import JornadaPage from "./pages/JornadaPage";
 import TeamPage from "./pages/TeamPage";
 import PlayerPage from "./pages/PlayerPage";
 import MatchPage from "./pages/MatchPage";
+import PostGame from "./pages/PostGame";
 import ComparePage from "./pages/ComparePage";
 import TeamPicker from "./components/TeamPicker";
 import { BrandMark, IsoCourt } from "./components/Iso";
@@ -118,6 +119,7 @@ export default function App() {
           <Route path="/team/:id" element={<TeamPage />} />
           <Route path="/player/:id" element={<PlayerPage />} />
           <Route path="/match/:id" element={<MatchPage />} />
+          <Route path="/postgame/:id" element={<PostGame />} />
         </Routes>
       </main>
     </div>

@@ -152,3 +152,101 @@ def parse_match(match_data: dict) -> dict:
         "players": parse_players(match_data.get("BOXSCORE") or {}),
         "shots": parse_shots(match_data.get("SHOTCHART") or {}),
     }
+
+
+# ============================== play-by-play ==============================
+# Vocabulario de acciones de la FEB tal como viene en el campo `action`.
+PBP_ACTIONS = {
+    "period",     # comienzo / fin de cuarto
+    "subst",      # entra o sale de pista
+    "shoot",      # tiro de campo (anotado o fallado), con valor en logParam6
+    "fthrow",     # tiro libre
+    "rebound",    # rebote (ofensivo/defensivo no viene: se deduce del tiro anterior)
+    "assist",
+    "lose",       # pérdida
+    "recovery",   # robo
+    "foul",
+    "blockshot",  # tapón
+}
+
+_FOUL_KIND = re.compile(r"FALTA\s+(\w+)", re.IGNORECASE)
+
+
+def _position(raw: Optional[str]) -> tuple[Optional[float], Optional[float]]:
+    """'65.62|67.02' -> (65.62, 67.02). Coordenadas de pista completa, 0-100."""
+    if not raw or "|" not in str(raw):
+        return None, None
+    try:
+        x, y = str(raw).split("|")[:2]
+        return float(x), float(y)
+    except (ValueError, TypeError):
+        return None, None
+
+
+def parse_pbp(keyfacts: dict) -> list[dict]:
+    """Normaliza el play-by-play de LiveStats, ya ordenado cronológicamente.
+
+    La FEB lo devuelve del final hacia el principio; `num` es el orden real y es lo que
+    manda, porque varias jugadas comparten el mismo reloj (un tiro, su rebote y la falta
+    posterior pueden estar todos en el mismo segundo).
+    """
+    lines = (keyfacts.get("PLAYBYPLAY") or {}).get("LINES") or []
+    out: list[dict] = []
+    for ln in lines:
+        action = (_clean(ln.get("action")) or "").lower()
+        if not action:
+            continue
+        quarter = _int(ln.get("quarter")) or None
+        clock = _clean(ln.get("time"))
+        text = _clean(ln.get("text"))
+        x, y = _position(ln.get("Position"))
+
+        made: Optional[bool] = None
+        points = 0
+        detail: Optional[str] = None
+        if action == "shoot":
+            # logParam4: 1 anotado / 0 fallado · logParam6: valor del tiro (2 o 3).
+            # El texto ("TIRO DE 3 ANOTADO") es el desempate si faltan los parámetros.
+            value = _int(ln.get("logParam6")) or (3 if "DE 3" in (text or "") else 2)
+            made = (str(ln.get("logParam4")).strip() == "1") if ln.get("logParam4") not in (None, "") \
+                else ("ANOTADO" in (text or "").upper())
+            points = value if made else 0
+            detail = f"T{value}"
+        elif action == "fthrow":
+            made = (str(ln.get("logParam4")).strip() == "1") if ln.get("logParam4") not in (None, "") \
+                else ("ANOTADO" in (text or "").upper())
+            points = 1 if made else 0
+            detail = "T1"
+        elif action == "subst":
+            # logParam3 lleva la licencia del que ENTRA; logParam2, la del que SALE.
+            if ln.get("logParam3"):
+                detail = "in"
+            elif ln.get("logParam2"):
+                detail = "out"
+            else:
+                detail = "in" if "Entra" in (text or "") else "out"
+        elif action == "foul":
+            m = _FOUL_KIND.search(text or "")
+            detail = (m.group(1).lower() if m else None)
+        elif action == "period":
+            detail = "end" if "Fin" in (text or "") else "start"
+
+        out.append({
+            "num": _int(ln.get("num")),
+            "quarter": quarter,
+            "clock": clock,
+            "seconds_elapsed": _seconds_elapsed(quarter or 0, clock),
+            "team_index": (_int(ln.get("team")) - 1) if ln.get("team") else None,  # 1/2 -> 0/1
+            "team_livestats_id": _clean(ln.get("idTeam")),
+            "player_code": _clean(ln.get("idPlayer")),
+            "action": action,
+            "detail": detail,
+            "made": made,
+            "points": points,
+            "score_home": _int(ln.get("scoreA"), None) if ln.get("scoreA") not in (None, "") else None,
+            "score_away": _int(ln.get("scoreB"), None) if ln.get("scoreB") not in (None, "") else None,
+            "x": x, "y": y,
+            "text": text,
+        })
+    out.sort(key=lambda e: e["num"])
+    return out

@@ -29,6 +29,60 @@ function KeyPlayer({ p, nav }: { p: any; nav: any }) {
   );
 }
 
+/* Informes post-partido: uno por cada partido jugado. El play-by-play de un partido
+   solo se descarga cuando alguien abre SU informe, así que aquí no se baja nada. */
+function MatchReports({ teamId, nav }: { teamId: number; nav: any }) {
+  const [all, setAll] = useState(false);
+  const list = useAsync<any[]>(() => api.scoutMatches(teamId), [teamId]);
+  if (list.loading) return <div className="loader">Cargando partidos…</div>;
+  const rows = list.data || [];
+  if (!rows.length) return null;
+  const shown = all ? rows : rows.slice(-8).reverse();
+  return (
+    <div className="card">
+      <div className="pg-list-head">
+        <h3 style={{ margin: 0 }}>Informes post-partido</h3>
+        {rows.length > 8 && (
+          <button className="ghost-btn" onClick={() => setAll((v) => !v)}>
+            {all ? "Ver solo los últimos" : `Ver los ${rows.length}`}
+          </button>
+        )}
+      </div>
+      <p className="muted" style={{ marginTop: 4 }}>
+        Un informe completo de cada partido: posesión a posesión, rachas, quintetos,
+        mapas de tiro y claves. El primero de cada partido tarda unos segundos
+        (hay que descargar el play-by-play de la FEB).
+      </p>
+      <table>
+        <thead>
+          <tr><th>J</th><th>Fecha</th><th>Rival</th><th className="num">Resultado</th>
+            <th className="num">Informe</th></tr>
+        </thead>
+        <tbody>
+          {(all ? [...rows].reverse() : shown).map((m) => (
+            <tr key={m.match_id} className="clickable"
+                onClick={() => nav(`/postgame/${m.match_id}`)}>
+              <td className="muted">{m.jornada_num ?? "—"}</td>
+              <td className="muted">{m.date ? m.date.split("-").reverse().join("/") : "—"}</td>
+              <td>
+                {m.opponent_logo && <img className="team-logo" src={m.opponent_logo}
+                                         style={{ width: 20, height: 20, marginRight: 6 }} />}
+                {m.is_home ? "" : "@ "}{m.opponent}
+              </td>
+              <td className="num">
+                <b className={m.result === "V" ? "pos" : "neg"}>{m.result}</b> {m.score}
+              </td>
+              <td className="num">
+                <span className="pg-link">{m.ready ? "Ver informe →" : "Generar →"}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Scout() {
   const { id } = useParams();
   const tid = Number(id);
@@ -151,6 +205,10 @@ export default function Scout() {
           {teamShots.data?.shots.length ? <ShotChart shots={teamShots.data.shots} /> :
             <div className="loader">Prepara el scouting para ver el mapa de tiro.</div>}
         </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <MatchReports teamId={tid} nav={nav} />
       </div>
 
       {d.detail_ready && d.key_players.length > 0 && (

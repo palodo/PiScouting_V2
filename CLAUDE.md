@@ -97,14 +97,35 @@ crea una cuenta nueva en la app (registro con email+contraseña y elección de e
 - **Columnas nuevas**: `db.init_db()` llama a `_add_missing_columns()`, que hace `ALTER TABLE
   ADD COLUMN` de lo que falte (SQLite y Postgres). Añadir campos al modelo es seguro; renombrar
   o borrar no está soportado.
-- **Informe PDF**: `backend/app/pdf_report.py` (ReportLab + Pillow, sin matplotlib), horizontal y
-  visual. Endpoint `GET /api/scout/{id}/pdf`. Los mapas de tiro se pintan sobre la mitad derecha
-  de `data/basket_court_edited.png`.
+- **Informe PDF de temporada**: `backend/app/pdf_report.py` (ReportLab + Pillow, sin matplotlib),
+  horizontal y visual. Endpoint `GET /api/scout/{id}/pdf`.
+- **Play-by-play**: lo sirve el endpoint **`KeyFacts`** de LiveStats, NO un `PlayByPlay` (ese
+  responde 404). La sección `PLAYBYPLAY` existe en el envelope de todos los endpoints pero solo
+  KeyFacts la rellena. ~500 jugadas por partido, con coordenadas y valor del tiro. Se guarda en
+  `PlayEvent` y se baja **bajo demanda** (una petición más por partido): bajarlo para los 2.430
+  partidos sería tirar media hora de peticiones por nada.
+- **Informe post-partido**: `backend/app/postgame.py` (analítica) + `postgame_pdf.py` (PDF
+  vertical, 15 páginas) + `frontend/src/pages/PostGame.tsx`. Endpoints
+  `GET /api/matches/{id}/postgame`, `.../postgame/pdf` y `GET /api/scout/{id}/matches`.
+  Reconstruye posesión a posesión, quintetos, rachas, tiempos muertos y economía de posesión.
+  **La regla de oro**: los minutos y el +/- que salen del play-by-play tienen que coincidir
+  CLAVADOS con el acta (`postgame.quality()` lo comprueba y el informe lo publica). Validado en
+  21 partidos de las 3 categorías: 21/21 "completo".
+- **Titulares**: el acta de la FEB trae el campo vacío (`sta` a null), así que
+  `PlayerMatchStat.starter` es False para todos. Los titulares de verdad se sacan del
+  play-by-play: los cinco que entran en el 10:00 del Q1 (`postgame.starters_from_pbp`).
+- **Geometría de la pista**: las coordenadas de la FEB NO cubren los 28x15 m reglamentarios.
+  Calibradas contra el valor real de cada tiro (2 o 3) sobre 3.304 tiros: el lienzo abarca
+  **13,5 m de fondo y 16,3 m de ancho** (`postgame.COURT_L/COURT_W`). Con eso el error de
+  clasificar 2/3 por geometría baja del 2,69% al 0,61%. Ojo: `frontend/src/components/ShotChart.tsx`
+  (el mapa de temporada) sigue con los 14x15 m de antes y por eso pinta los tiros algo anchos.
+- **Decimales**: la API devuelve números (`60.3`) y los TEXTOS ya redactados van a la española
+  (`60,3`). Se hace en un solo sitio: `postgame._es()` y `postgame_pdf._p()`.
 - **Ficheros gitignored** (se regeneran): `data/scouting.db`, `data/player_photos_cache/`,
   `data/team_logos_cache/`, `node_modules/`, `*.log`, `_original/` (proyecto viejo de referencia).
 
 ## 4. Pendiente / próximos pasos
-- Calibrar con precisión las coordenadas del shotchart FEB contra la pista real
-  (ahora los tiros se reparten algo anchos por la media pista).
+- Llevar la geometría calibrada (13,5 x 16,3 m) al `ShotChart.tsx` del scouting de temporada:
+  el informe post-partido ya la usa, el mapa de equipo/jugador todavía no.
 - Que el simulador de jornada acote también el scouting del rival a sus partidos hasta esa fecha.
 - Refresco incremental por jornada (tarea programada) y narrativa de scouting con IA.
