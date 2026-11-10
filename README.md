@@ -77,8 +77,9 @@ UI en http://127.0.0.1:5173 (proxy de `/api` al backend en el 8000).
 - **Scouting del rival** (tipo los PDF originales): puesto en el grupo, métricas avanzadas
   (OffRtg, ritmo, eFG%, TS%, AST/TO, % de tiros de 3), clasificación, **jugadores clave** con
   foto y mapa de tiro, y plantilla con +/- y TS%. **Exportable a PDF** (informe descargable).
-- **Informes post-partido**: de cada partido jugado, un informe completo al estilo de los
-  informes profesionales, en la app y **en PDF de 15 páginas**. Lleva resumen ejecutivo,
+- **Informes post-partido**: de cada partido jugado, un informe completo, en la app y **en PDF
+  de 15 páginas**, con estética de retransmisión (fondo oscuro, un color por equipo: naranja el
+  local, cian el visitante). Lleva resumen ejecutivo,
   evolución del marcador con rachas y sequías, fases de cada cuarto y tiempos muertos, four
   factors, **economía de posesión** (de dónde sale cada punto: tras robo, tras rebote, segundas
   oportunidades, puntos rápidos), perfil de tiro por zonas, box score, producción individual

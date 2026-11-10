@@ -120,7 +120,20 @@ crea una cuenta nueva en la app (registro con email+contraseña y elección de e
   clasificar 2/3 por geometría baja del 2,69% al 0,61%. Ojo: `frontend/src/components/ShotChart.tsx`
   (el mapa de temporada) sigue con los 14x15 m de antes y por eso pinta los tiros algo anchos.
 - **Decimales**: la API devuelve números (`60.3`) y los TEXTOS ya redactados van a la española
-  (`60,3`). Se hace en un solo sitio: `postgame._es()` y `postgame_pdf._p()`.
+  (`60,3`). Se hace en un solo sitio: `postgame._es()` y `postgame_pdf._p()`. Ojo: en el PDF la
+  conversión salta las etiquetas de marcado, o un `size=6.4` acabaría como `size=6,4` y
+  ReportLab no sabe leer eso.
+- **Estética del post-partido (a propósito distinta)**: fondo casi negro, tanto el PDF como la
+  página web, mientras el resto de la app es clara y de papel. Se mira en pantalla y en el
+  pabellón. Dos reglas que conviene no romper al tocar nada visual:
+  **(1) un color por equipo y siempre el mismo** — local en naranja `#FF5A1F`, visitante en
+  cian `#1FD4C3` — en barras, gráfico de evolución, mapas de tiro y tablas, para no tener que
+  volver a la leyenda; **(2) el color no se gasta en adornos**: si algo va en naranja o cian
+  es porque es un dato, los marcos van en gris.
+  En la web todo cuelga de `.postgame`, que **reescribe las variables del tema** en oscuro:
+  por eso los SVG de dentro (que usan `var(--court-line)`, `var(--made)`…) se vuelven oscuros
+  solos. La clase `body.pg-dark` (la pone y la quita la propia página) evita que el crema del
+  body asome al lado de la barra lateral.
 - **Ficheros gitignored** (se regeneran): `data/scouting.db`, `data/player_photos_cache/`,
   `data/team_logos_cache/`, `node_modules/`, `*.log`, `_original/` (proyecto viejo de referencia).
 

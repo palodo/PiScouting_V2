@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, apiUrl } from "../api";
 import { useAsync } from "../hooks";
@@ -6,10 +6,18 @@ import { useAsync } from "../hooks";
 /* ============================================================================
    Informe post-partido.
 
-   Es el mismo informe que sale en PDF, pero en pantalla: la idea es poder mirarlo
-   en el móvil camino del pabellón y descargarlo solo cuando hay que llevarlo impreso.
-   Todo lo que se pinta aquí viene de /api/matches/{id}/postgame.
+   El mismo informe que sale en PDF, pero en pantalla: la idea es mirarlo en el
+   móvil camino del pabellón y descargarlo solo cuando hay que llevarlo impreso.
+   Por eso va en oscuro aunque el resto de la app sea clara (ver `.postgame` en
+   styles.css, que reescribe ahí las variables del tema).
+
+   Un color por equipo y SIEMPRE el mismo, igual que en el PDF: el local en
+   naranja y el visitante en cian. Así no hay que volver a la leyenda en cada
+   gráfico. Todo lo que se pinta viene de /api/matches/{id}/postgame.
    ========================================================================== */
+
+const HOME = "var(--pg-home)";
+const AWAY = "var(--pg-away)";
 
 const fmt = (v: any, suffix = "") =>
   v === null || v === undefined ? "—" : `${String(v).replace(".", ",")}${suffix}`;
@@ -17,9 +25,10 @@ const fmt = (v: any, suffix = "") =>
 const signed = (v: number) => (v > 0 ? `+${v}` : String(v));
 const cls = (v: number) => (v > 0 ? "pos" : v < 0 ? "neg" : "muted");
 
-function Card({ label, value, foot }: { label: string; value: any; foot?: string }) {
+function Card({ label, value, foot, tone = "" }:
+               { label: string; value: any; foot?: string; tone?: string }) {
   return (
-    <div className="pg-card">
+    <div className={"pg-card " + tone}>
       <div className="pg-card-k">{label}</div>
       <div className="pg-card-v">{fmt(value)}</div>
       {foot && <div className="pg-card-f">{foot}</div>}
@@ -27,13 +36,34 @@ function Card({ label, value, foot }: { label: string; value: any; foot?: string
   );
 }
 
-function Section({ n, kicker, title, children }: any) {
+function Section({ n, kicker, title, sub, children }: any) {
   return (
     <section className="pg-section">
-      <div className="pg-kicker">{String(n).padStart(2, "0")} · {kicker}</div>
-      <h2 className="pg-title">{title}</h2>
+      <div className="pg-sec-head">
+        <div className="pg-sec-n">{String(n).padStart(2, "0")}</div>
+        <div>
+          <div className="pg-kicker">{kicker}</div>
+          <h2 className="pg-title">{title}</h2>
+          {sub && <p className="pg-sub">{sub}</p>}
+        </div>
+      </div>
       {children}
     </section>
+  );
+}
+
+/* Métrica enfrentada: dos barras que nacen del centro. Se ve quién gana sin leer. */
+function Versus({ label, a, b, max, suffix = "%" }: any) {
+  const pa = Math.max(2, Math.min(100, ((a || 0) / max) * 100));
+  const pb = Math.max(2, Math.min(100, ((b || 0) / max) * 100));
+  return (
+    <div className="pg-vs">
+      <b style={{ textAlign: "right" }}>{fmt(a, suffix)}</b>
+      <span className="t l"><i style={{ width: `${pa}%`, background: HOME }} /></span>
+      <span className="k">{label}</span>
+      <span className="t"><i style={{ width: `${pb}%`, background: AWAY }} /></span>
+      <b>{fmt(b, suffix)}</b>
+    </div>
   );
 }
 
@@ -75,17 +105,19 @@ function FlowChart({ flow, home, away }: any) {
       {quarters.map((q) => (
         <line key={q} x1={X(q)} x2={X(q)} y1={pad.t} y2={H - pad.b} stroke="var(--border)" />
       ))}
-      <path d={area} fill="rgba(35,164,85,.18)" clipPath="url(#pg-up)" />
-      <path d={area} fill="rgba(224,86,75,.16)" clipPath="url(#pg-dn)" />
+      <path d={area} fill="rgba(255,90,31,.26)" clipPath="url(#pg-up)" />
+      <path d={area} fill="rgba(31,212,195,.22)" clipPath="url(#pg-dn)" />
       <line x1={pad.l} x2={W - pad.r} y1={Y(0)} y2={Y(0)} stroke="var(--muted)" />
-      <path d={d} fill="none" stroke="var(--accent)" strokeWidth="2" />
+      {/* la línea se parte en dos trazos para que cada mitad lleve su color */}
+      <path d={d} fill="none" stroke={HOME} strokeWidth="2.4" clipPath="url(#pg-up)" />
+      <path d={d} fill="none" stroke={AWAY} strokeWidth="2.4" clipPath="url(#pg-dn)" />
       {quarters.concat([end]).map((q, i) => (
         <text key={`q${i}`} x={X(q) - 24} y={H - 6} fontSize="9" fill="var(--muted)">
           {`Q${i + 1}`}
         </text>
       ))}
-      <text x={pad.l + 4} y={pad.t + 10} fontSize="9.5" fill="var(--made)">▲ {home}</text>
-      <text x={pad.l + 4} y={H - pad.b - 4} fontSize="9.5" fill="var(--miss)">▼ {away}</text>
+      <text x={pad.l + 6} y={pad.t + 11} fontSize="10" fontWeight="700" fill={HOME}>{home}</text>
+      <text x={pad.l + 6} y={H - pad.b - 5} fontSize="10" fontWeight="700" fill={AWAY}>{away}</text>
     </svg>
   );
 }
@@ -94,7 +126,7 @@ function FlowChart({ flow, home, away }: any) {
 const COURT_L = 13.5, COURT_W = 16.3, HOOP_D = 1.575, R3 = 6.75, CY = 6.6;
 const CD = HOOP_D + Math.sqrt(R3 * R3 - CY * CY);
 
-function ShotMap({ shots }: { shots: any[] }) {
+function ShotMap({ shots, color }: { shots: any[]; color: string }) {
   const M = 26;                       // píxeles por metro
   const W = COURT_W * M, H = COURT_L * M;
   const PX = (dy: number) => W / 2 + dy * M;
@@ -118,14 +150,18 @@ function ShotMap({ shots }: { shots: any[] }) {
                   A ${R3 * M} ${R3 * M} 0 0 0 ${PX(CY)} ${PY(CD)}
                   L ${PX(CY)} ${PY(0)}`} />
       </g>
-      {shots.map((s, i) => {
+      {/* primero los fallos, para que los aciertos queden por encima */}
+      {shots.filter((s) => !s.made).map((s, i) => {
         const [x, y] = pos(s);
-        return s.made ? (
-          <circle key={i} cx={x} cy={y} r={4.5} fill="var(--made)" stroke="#fff" strokeWidth="1" />
-        ) : (
-          <g key={i} stroke="var(--miss)" strokeWidth="2">
-            <line x1={x - 4} y1={y - 4} x2={x + 4} y2={y + 4} />
-            <line x1={x - 4} y1={y + 4} x2={x + 4} y2={y - 4} />
+        return <circle key={`m${i}`} cx={x} cy={y} r={4.2} fill="none"
+                       stroke="var(--miss)" strokeWidth="1.8" />;
+      })}
+      {shots.filter((s) => s.made).map((s, i) => {
+        const [x, y] = pos(s);
+        return (
+          <g key={`o${i}`}>
+            <circle cx={x} cy={y} r={9} fill={color} opacity={0.22} />
+            <circle cx={x} cy={y} r={4.6} fill={color} />
           </g>
         );
       })}
@@ -133,18 +169,19 @@ function ShotMap({ shots }: { shots: any[] }) {
   );
 }
 
-function Bar({ label, value, max, color }: any) {
+function Bar({ label, value, max, color, suffix = "" }: any) {
   const pct = Math.max(2, Math.min(100, ((value || 0) / max) * 100));
   return (
     <div className="pg-bar">
       <span className="pg-bar-k">{label}</span>
       <span className="pg-bar-track"><i style={{ width: `${pct}%`, background: color }} /></span>
-      <b>{fmt(value)}</b>
+      <b>{fmt(value, suffix)}</b>
     </div>
   );
 }
 
-function BoxTable({ rows, totals }: any) {
+function BoxTable({ rows, totals, side }: { rows: any[]; totals: any; side: "home" | "away" }) {
+  const hot = side === "home" ? "" : " a";
   return (
     <div className="table-scroll">
       <table className="pg-box">
@@ -162,10 +199,11 @@ function BoxTable({ rows, totals }: any) {
             <tr key={b.player_id}>
               <td>
                 <span className="pg-dorsal">#{b.dorsal || "—"}</span> {b.name}
-                {b.starter && <span className="pg-tit">TIT</span>}
+                {b.starter && <span className={"pg-tit" + hot}>TIT</span>}
               </td>
               <td className="num">{b.min}</td>
-              <td className="num" style={{ fontWeight: 700 }}>{b.pts}</td>
+              <td className={"num" + (b.pts >= 10 ? " pg-hot" + hot : "")}
+                  style={{ fontWeight: 700 }}>{b.pts}</td>
               <td className="num">{b.tc}</td><td className="num">{b.t3}</td>
               <td className="num">{b.tl}</td><td className="num">{b.oreb}</td>
               <td className="num">{b.dreb}</td><td className="num">{b.ast}</td>
@@ -174,8 +212,9 @@ function BoxTable({ rows, totals }: any) {
               <td className={"num " + cls(b.plus_minus)}>{signed(b.plus_minus)}</td>
             </tr>
           ))}
-          <tr className="pg-total">
-            <td>Totales</td><td className="num" /><td className="num">{totals.pts}</td>
+          <tr className={"pg-total" + hot}>
+            <td>Totales</td><td className="num" />
+            <td className={"num pg-hot" + hot}>{totals.pts}</td>
             <td className="num">{totals.tc}</td><td className="num">{totals.t3}</td>
             <td className="num">{totals.tl}</td><td className="num">{totals.oreb}</td>
             <td className="num">{totals.dreb}</td><td className="num">{totals.ast}</td>
@@ -195,6 +234,13 @@ export default function PostGame() {
   const [downloading, setDownloading] = useState(false);
   const [side, setSide] = useState<"home" | "away">("home");
   const rep = useAsync<any>(() => api.postgame(mid), [mid]);
+
+  // El informe va en oscuro y la app es clara: sin esto, el fondo crema del body
+  // asoma por debajo de la barra lateral (que solo mide una pantalla de alto).
+  useEffect(() => {
+    document.body.classList.add("pg-dark");
+    return () => document.body.classList.remove("pg-dark");
+  }, []);
 
   async function downloadPdf() {
     setDownloading(true);
@@ -229,21 +275,30 @@ export default function PostGame() {
       <div className="pg-head">
         <div>
           <div className="chip">INFORME POST-PARTIDO</div>
-          <h1 className="page-title" style={{ marginTop: 8 }}>
-            <span className={mt.winner === "home" ? "" : "muted"}>{hn}</span>
-            {" "}<b className="pg-score">{mt.home.score}–{mt.away.score}</b>{" "}
-            <span className={mt.winner === "away" ? "" : "muted"}>{an}</span>
+          <h1 className="pg-matchup">
+            <span className={mt.winner === "home" ? "h" : "lost"}>{hn}</span>
+            <b className="pg-score">{mt.home.score}–{mt.away.score}</b>
+            <span className={mt.winner === "away" ? "a" : "lost"}>{an}</span>
           </h1>
-          <p className="page-sub" style={{ margin: 0 }}>
+          <p className="pg-sub">
             {[mt.competition, mt.grupo, mt.jornada, mt.date].filter(Boolean).join(" · ")}
             {mt.venue ? ` · ${mt.venue}` : ""}
           </p>
-          <p className="pg-quarters">
+          <div className="pg-quarters">
             {mt.quarters.map((q: any) => (
-              <span key={q.n}><b>Q{q.n}</b> {q.home}-{q.away}</span>
+              <div className="pg-q" key={q.n}>
+                <span>Q{q.n}</span>
+                <b>
+                  <i style={{ color: q.home >= q.away ? HOME : "var(--muted)", fontStyle: "normal" }}>{q.home}</i>
+                  <i style={{ color: "var(--muted)", fontStyle: "normal" }}>–</i>
+                  <i style={{ color: q.away > q.home ? AWAY : "var(--muted)", fontStyle: "normal" }}>{q.away}</i>
+                </b>
+              </div>
             ))}
-            {mt.halftime && <span className="muted">Descanso {mt.halftime}</span>}
-          </p>
+            {mt.halftime && (
+              <div className="pg-q"><span>Descanso</span><b>{mt.halftime.replace("-", "–")}</b></div>
+            )}
+          </div>
         </div>
         <div className="scout-actions">
           <button className="primary-btn" onClick={downloadPdf} disabled={downloading}>
@@ -258,7 +313,8 @@ export default function PostGame() {
         <div className="pg-lead">{sm.lead}</div>
         <div className="pg-cards">
           {sm.cards.map((c: any, i: number) => (
-            <Card key={i} label={c.label} value={c.value} foot={c.foot} />
+            <Card key={i} label={c.label} value={c.value} foot={c.foot}
+                  tone={["", "", "a", "g", "a", "g"][i % 6]} />
           ))}
         </div>
         <div className="grid grid-2" style={{ marginTop: 14 }}>
@@ -289,14 +345,14 @@ export default function PostGame() {
           <div className="pg-cards">
             <Card label={`${hn} por delante`} value={d.flow.lead_time.home_label}
                   foot={`máx. +${d.flow.max_lead.home.pts} · ${d.flow.max_lead.home.at}`} />
-            <Card label={`${an} por delante`} value={d.flow.lead_time.away_label}
+            <Card label={`${an} por delante`} value={d.flow.lead_time.away_label} tone="a"
                   foot={`máx. +${d.flow.max_lead.away.pts} · ${d.flow.max_lead.away.at}`} />
-            <Card label="Cambios de líder" value={d.flow.lead_changes}
+            <Card label="Cambios de líder" value={d.flow.lead_changes} tone="g"
                   foot={`${d.flow.ties} empate(s)`} />
             <Card label="Sequía más larga del local" value={d.flow.droughts.home.label}
-                  foot={`desde ${d.flow.droughts.home.from}`} />
+                  tone="r" foot={`desde ${d.flow.droughts.home.from}`} />
             <Card label="Sequía más larga del visitante" value={d.flow.droughts.away.label}
-                  foot={`desde ${d.flow.droughts.away.from}`} />
+                  tone="r" foot={`desde ${d.flow.droughts.away.from}`} />
           </div>
           {d.flow.runs.length > 0 && (
             <div className="card" style={{ marginTop: 14 }}>
@@ -306,7 +362,7 @@ export default function PostGame() {
                 <tbody>
                   {d.flow.runs.map((r: any, i: number) => (
                     <tr key={i}>
-                      <td><b>{r.is_home ? hn : an}</b></td>
+                      <td><b style={{ color: r.is_home ? HOME : AWAY }}>{r.is_home ? hn : an}</b></td>
                       <td>{r.run}</td>
                       <td>{r.from_score} → {r.to_score}</td>
                       <td className="muted">{r.from_clock} → {r.to_clock}</td>
@@ -354,7 +410,7 @@ export default function PostGame() {
                 <tbody>
                   {d.phases.timeouts.map((t: any, i: number) => (
                     <tr key={i}>
-                      <td><b>{t.is_home ? hn : an}</b></td>
+                      <td><b style={{ color: t.is_home ? HOME : AWAY }}>{t.is_home ? hn : an}</b></td>
                       <td className="muted">{t.at}</td><td>{t.score}</td>
                       <td>{t.before}</td><td>{t.after}</td>
                       <td className={"num " + cls(t.swing)}>{signed(t.swing)}</td>
@@ -371,43 +427,67 @@ export default function PostGame() {
       )}
 
       {/* ---------- 04 avanzada ---------- */}
-      <Section n={4} kicker="Estadística avanzada" title="Quién ganó cada uno de los cuatro factores">
+      <Section n={4} kicker="Estadística avanzada"
+               title="Quién ganó cada uno de los cuatro factores"
+               sub={`Ritmo del partido: ${fmt(adv.pace)} posesiones. Barra izquierda ${hn}, derecha ${an}.`}>
+        <div className="card">
+          <Versus label="eFG%" a={adv.home.efg} b={adv.away.efg} max={75} />
+          <Versus label="TOV%" a={adv.home.tov_pct} b={adv.away.tov_pct} max={35} />
+          <Versus label="ORB%" a={adv.home.orb_pct} b={adv.away.orb_pct} max={60} />
+          <Versus label="FTr" a={adv.home.ftr} b={adv.away.ftr} max={65} />
+          <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>
+            Cuanto más larga la barra, más alto el valor. En TOV% gana quien la tiene
+            MÁS CORTA: son pérdidas.
+          </p>
+        </div>
         <div className="grid grid-2">
           <div className="card">
             <table>
-              <thead><tr><th>Métrica</th><th className="num">{hn}</th><th className="num">{an}</th></tr></thead>
+              <thead><tr><th>Métrica</th>
+                <th className="num" style={{ color: HOME }}>{hn}</th>
+                <th className="num" style={{ color: AWAY }}>{an}</th></tr></thead>
               <tbody>
                 {[
-                  ["Posesiones reales", adv.home.poss_real, adv.away.poss_real],
-                  ["Posesiones estimadas", adv.home.poss_est, adv.away.poss_est],
-                  ["Ef. ofensiva (pts/100)", adv.home.off_rtg, adv.away.off_rtg],
-                  ["Ef. defensiva", adv.home.def_rtg, adv.away.def_rtg],
-                  ["eFG%", adv.home.efg, adv.away.efg],
-                  ["TS%", adv.home.ts, adv.away.ts],
-                  ["TOV%", adv.home.tov_pct, adv.away.tov_pct],
-                  ["ORB%", adv.home.orb_pct, adv.away.orb_pct],
-                  ["DRB%", adv.home.drb_pct, adv.away.drb_pct],
-                  ["FTr", adv.home.ftr, adv.away.ftr],
-                  ["Volumen de triple", adv.home.three_rate, adv.away.three_rate],
-                  ["% canastas asistidas", adv.home.ast_pct, adv.away.ast_pct],
-                ].map(([k, a, b]: any) => (
-                  <tr key={k}><td>{k}</td><td className="num">{fmt(a)}</td><td className="num">{fmt(b)}</td></tr>
-                ))}
+                  ["Posesiones reales", adv.home.poss_real, adv.away.poss_real, 1],
+                  ["Posesiones estimadas", adv.home.poss_est, adv.away.poss_est, 0],
+                  ["Ef. ofensiva (pts/100)", adv.home.off_rtg, adv.away.off_rtg, 1],
+                  ["Ef. defensiva", adv.home.def_rtg, adv.away.def_rtg, -1],
+                  ["eFG%", adv.home.efg, adv.away.efg, 1],
+                  ["TS%", adv.home.ts, adv.away.ts, 1],
+                  ["TOV%", adv.home.tov_pct, adv.away.tov_pct, -1],
+                  ["ORB%", adv.home.orb_pct, adv.away.orb_pct, 1],
+                  ["DRB%", adv.home.drb_pct, adv.away.drb_pct, 1],
+                  ["FTr", adv.home.ftr, adv.away.ftr, 1],
+                  ["Volumen de triple", adv.home.three_rate, adv.away.three_rate, 0],
+                  ["% canastas asistidas", adv.home.ast_pct, adv.away.ast_pct, 0],
+                ].map(([k, a, b, better]: any) => {
+                  // `better` dice qué lado gana: 1 el más alto, -1 el más bajo, 0 nadie
+                  const hw = better && a !== b && (better > 0 ? a > b : a < b);
+                  const aw = better && a !== b && !hw;
+                  return (
+                    <tr key={k}>
+                      <td>{k}</td>
+                      <td className="num" style={hw ? { color: HOME, fontWeight: 800 } : undefined}>{fmt(a)}</td>
+                      <td className="num" style={aw ? { color: AWAY, fontWeight: 800 } : undefined}>{fmt(b)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Four Factors</h3>
-            {[["eFG%", "efg", 70, "mayor es mejor"], ["TOV%", "tov_pct", 30, "menor es mejor"],
-              ["ORB%", "orb_pct", 55, "mayor es mejor"], ["FTr", "ftr", 60, "mayor es mejor"]]
-              .map(([label, key, max, hint]: any) => (
-                <div key={key} className="pg-ff">
-                  <div className="pg-ff-head"><b>{label}</b><span className="muted">{hint}</span></div>
-                  <Bar label={hn} value={adv.home[key]} max={max} color="var(--accent)" />
-                  <Bar label={an} value={adv.away[key]} max={max} color="var(--wood)" />
+            <h3 style={{ marginTop: 0 }}>Cómo juegan</h3>
+            {[["Volumen de triple · % de los tiros", "three_rate", 70, "%"],
+              ["Canastas asistidas", "ast_pct", 100, "%"],
+              ["Asistencias por pérdida", "ast_to", 3, ""]]
+              .map(([label, key, max, suf]: any) => (
+                <div key={key} style={{ marginBottom: 14 }}>
+                  <div className="pg-kicker" style={{ marginBottom: 5 }}>{label}</div>
+                  <Bar label={hn} value={adv.home[key]} max={max} color={HOME} suffix={suf} />
+                  <Bar label={an} value={adv.away[key]} max={max} color={AWAY} suffix={suf} />
                 </div>
               ))}
-            <p className="muted" style={{ fontSize: 12 }}>
+            <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
               Las eficiencias van sobre el ritmo del partido ({fmt(adv.pace)} posesiones),
               el mismo para los dos. TOV%, ORB% y FTr, sobre las posesiones propias.
             </p>
@@ -419,16 +499,16 @@ export default function PostGame() {
       {d.possessions && (
         <Section n={5} kicker="Economía de posesión" title="De dónde salieron los puntos">
           <div className="pg-cards">
-            <Card label="Pts 2ª oportunidad"
+            <Card label="Pts 2ª oportunidad" tone="g"
                   value={`${d.possessions.home.second_chance}-${d.possessions.away.second_chance}`}
                   foot={`en ${d.possessions.home.second_chance_poss}-${d.possessions.away.second_chance_poss} posesiones`} />
             <Card label="Pts tras pérdida"
                   value={`${d.possessions.home.off_turnovers}-${d.possessions.away.off_turnovers}`}
                   foot={`en ${d.possessions.home.off_turnovers_poss}-${d.possessions.away.off_turnovers_poss} posesiones`} />
-            <Card label="Pts rápidos (hasta 8 s)"
+            <Card label="Pts rápidos (hasta 8 s)" tone="a"
                   value={`${d.possessions.home.fast_break}-${d.possessions.away.fast_break}`}
                   foot={`posesión media ${fmt(d.possessions.home.avg_seconds)}s / ${fmt(d.possessions.away.avg_seconds)}s`} />
-            <Card label="Posesiones vacías"
+            <Card label="Posesiones vacías" tone="r"
                   value={`${d.possessions.home.empty}/${d.possessions.home.poss}`}
                   foot={`${an}: ${d.possessions.away.empty}/${d.possessions.away.poss}`} />
           </div>
@@ -439,9 +519,8 @@ export default function PostGame() {
                 {d.possessions[s].by_origin.map((o: any) => (
                   <div key={o.origin}>
                     <div className="pg-origin">{o.label}
-                      <span className="muted"> · {o.pts} pts en {o.poss} pos.</span></div>
-                    <Bar label="" value={o.ppp} max={1.6}
-                         color={s === "home" ? "var(--accent)" : "var(--wood)"} />
+                      <span> · {o.pts} pts en {o.poss} pos.</span></div>
+                    <Bar label="" value={o.ppp} max={1.6} color={s === "home" ? HOME : AWAY} />
                   </div>
                 ))}
               </div>
@@ -456,8 +535,10 @@ export default function PostGame() {
           <div className="grid grid-2">
             {(["home", "away"] as const).map((s) => (
               <div className="card" key={s}>
-                <h3 style={{ marginTop: 0 }}>Mapa de tiro · {teamName(s)}</h3>
-                <ShotMap shots={d.shooting.shots[s]} />
+                <h3 style={{ marginTop: 0, color: s === "home" ? HOME : AWAY }}>
+                  Mapa de tiro · {teamName(s)}
+                </h3>
+                <ShotMap shots={d.shooting.shots[s]} color={s === "home" ? HOME : AWAY} />
               </div>
             ))}
           </div>
@@ -484,8 +565,9 @@ export default function PostGame() {
               </tbody>
             </table>
             <p className="muted" style={{ fontSize: 12 }}>
-              Verde = anotado, rojo = fallado. Zonas FIBA sobre las coordenadas de la FEB,
-              calibradas contra el valor real de cada tiro.
+              Círculo lleno en el color del equipo = anotado; aro vacío = fallado. Zonas
+              FIBA sobre las coordenadas de la FEB, calibradas contra el valor real de
+              cada tiro.
             </p>
           </div>
         </Section>
@@ -496,7 +578,9 @@ export default function PostGame() {
         <div className="grid grid-2">
           {(["home", "away"] as const).map((s) => (
             <div className="card" key={s}>
-              <h3 style={{ marginTop: 0 }}>Top 3 · {teamName(s)}</h3>
+              <h3 style={{ marginTop: 0, color: s === "home" ? HOME : AWAY }}>
+                Top 3 · {teamName(s)}
+              </h3>
               <table>
                 <thead><tr><th>Jugador</th><th className="num">Min</th><th className="num">Game Score</th>
                   <th className="num">Val</th><th className="num">Pts</th><th className="num">+/-</th></tr></thead>
@@ -504,7 +588,9 @@ export default function PostGame() {
                   {d.impact.top[s].map((t: any, i: number) => (
                     <tr key={i}>
                       <td><b>{t.short}</b></td><td className="num">{t.min}</td>
-                      <td className="num">{fmt(t.gmsc)}</td><td className="num">{t.val}</td>
+                      <td className="num" style={{ color: s === "home" ? HOME : AWAY, fontWeight: 800 }}>
+                        {fmt(t.gmsc)}
+                      </td><td className="num">{t.val}</td>
                       <td className="num">{t.pts}</td>
                       <td className={"num " + cls(t.plus_minus)}>{signed(t.plus_minus)}</td>
                     </tr>
@@ -552,14 +638,15 @@ export default function PostGame() {
       <Section n={8} kicker="Jugadores" title="Box score, producción y rotaciones">
         <div className="pg-tabs">
           {(["home", "away"] as const).map((s) => (
-            <button key={s} className={side === s ? "active" : ""} onClick={() => setSide(s)}>
+            <button key={s} className={`${s === "home" ? "h" : "a"}${side === s ? " active" : ""}`}
+                    onClick={() => setSide(s)}>
               {teamName(s)}
             </button>
           ))}
         </div>
 
         <div className="card">
-          <BoxTable rows={d.box[side]} totals={d.box.totals[side]} />
+          <BoxTable rows={d.box[side]} totals={d.box.totals[side]} side={side} />
         </div>
 
         <div className="card" style={{ marginTop: 14 }}>
